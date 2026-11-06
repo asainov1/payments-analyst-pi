@@ -388,15 +388,15 @@ zimran-task/
 | 8 ✅⁶ | **`py-sandbox`** (internal network, ro, uid 65534, mem/pids limits) + tool `python` + `read_skill` | `python` считает то же, что `sql`, на 1 задаче; A14: `open(val.jsonl)` → `FileNotFoundError`, `urllib` / `subprocess curl` → ошибка сети |
 | 9 | **Baseline v000 (фон):** **прогрев кэша перед fan-out (з):** в каждом batch сначала 1 задача (пишет префикс), потом параллель — иначе N первых запросов платят запись 1.25×; выбор модели на 20 improve-train (Haiku vs Sonnet), затем **2× val**, improve-train, report-holdout. Метрики пишутся в БД (run-уровень); `metrics.json` материализуется в шаге 10 | в БД есть 4 run'а v000; посчитан порог `T` (§3.4) и $/task |
 | 14 ✅⁷ | **API сессий + SSE**, multi-turn, `ask_user` | `curl -N` показывает поток событий; follow-up использует контекст |
-| 15 | **UI Chat (тонкий):** стрим шагов, cost / cache / trace-ссылка, 👍/👎, version selector | ручной сценарий A6 / A7 |
+| 15 ✅ | **UI Chat (тонкий):** стрим шагов, cost / cache / trace-ссылка, 👍/👎, version selector | ручной сценарий A6 / A7 |
 | 10 | **Version store + `harness report`** (`metrics.json` из БД, `diff.patch`, bind-mount `./versions`; rejected-версии тоже в git) | `report` печатает таблицу с v000; `diff.patch` генерируется |
 | 11 | **Improver: analyze → propose → curate → leakcheck** (reflector — Pi-сессия через Tracer; content XOR routing; allow-list; v000 переводится на `playbook.json`) | валидный Proposal на провалах v000; curator-тесты (без LLM): ops по rule_id, merge, дедуп, `over_limit` (41-е правило), `growth_under_pressure` (родитель 32 правила, +1 → reject; merge 2→1 → pass), рендер детерминирован; отклонённый кандидат сохранён версией с diff / причиной / `reflect_cost_usd`, `val = null`; leak-тесты: gold-литерал → reject + `[REDACTED]` в diff, `GlobalCard`/`Not Applicable` в правиле → pass, путь `tasks/` → reject; skill с dict-литералом из 11 пар `'merchant': число` → reject, из 10 → pass, вычисляющий SQL-шаблон → pass; промпт reflector'а содержит запрет хардкода; reflect-трейс виден в Langfuse |
 | 12 | **Improver: smoke → validate → gate → promote/reject** (T из шага 9, confirmed_wins, cost-guard ×1.3) | 1 поколение end-to-end, `GateDecision` записан в metrics |
 | 13 | **Прогон improve (фон, бюджет ≤ $60)**, пока идут шаги 16–18 | ≥ 2 `promoted` |
-| 16 | **UI Improvements:** таблица версий, дифф, кнопка «improve» с бюджетом, promote/rollback | запуск improve из UI виден в прогрессе |
+| 16 ✅ | **UI Improvements:** таблица версий, дифф, кнопка «improve» с бюджетом, promote/rollback | запуск improve из UI виден в прогрессе |
 | 17 | **👎 → improver** | `improve` логирует `feedback_items > 0`, 👎-ход попадает в ANALYZE |
 | 18 | **MCP** (Streamable HTTP; stdio = прокси к `:8080`, чтобы шёл через общий Governor) | Claude Code и Codex: `ask` → `needs_clarification` → `ask` с session_id → `answered` |
-| 19 | **Чистый клон** | `scripts/clean-clone-test.sh` зелёный (A1, A2 включая holdout-файл без `answer`) |
+| 19 ✅ | **Чистый клон** | `scripts/clean-clone-test.sh` зелёный (A1, A2 включая holdout-файл без `answer`) |
 | 20 | **Финализация deliverables** (§9): заморозка best, report-holdout для best, экспорт Langfuse, README / REPORT | чек-лист §9.3 закрыт |
 
 ² Governor готов как библиотека (`Governor.call`). Точка подключения к Pi (Pi сам делает HTTP-запросы) решается в шаге 2: хук Pi перед запросом или локальный governor-прокси между Pi и LiteLLM (бонус: точная стоимость из `x-litellm-response-cost`).
