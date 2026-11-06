@@ -1,0 +1,8 @@
+.env
+state/
+io/*
+!io/.keep
+node_modules/
+.venv/
+__pycache__/
+*.log
