@@ -125,9 +125,24 @@ export function buildReflectorPrompt(o: {
 }
 
 export function parseProposal(text: string): Proposal {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text)?.[1];
-  const raw = fenced ?? text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
-  const p = JSON.parse(raw) as Proposal;
+  // Order matters: skill code inside JSON strings may contain ``` fences of its own (v004).
+  const candidates = [
+    text.trim(),
+    text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1),
+    /```json\s*([\s\S]*)```\s*$/.exec(text.trim())?.[1] ?? "",
+  ];
+  let p: Proposal | null = null;
+  let lastError: unknown = new Error("no JSON object found");
+  for (const c of candidates) {
+    if (!c) continue;
+    try {
+      p = JSON.parse(c) as Proposal;
+      break;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (!p) throw lastError;
   if ((p.kind !== "content" && p.kind !== "routing") || !Array.isArray(p.ops) || !p.ops.length) throw new Error("proposal must have kind content|routing and non-empty ops");
   return p;
 }

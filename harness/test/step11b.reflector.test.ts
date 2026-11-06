@@ -60,3 +60,13 @@ describe("schema in the reflector prompt", () => {
     }
   });
 });
+
+describe("parseProposal with code fences inside JSON strings (v004)", () => {
+  test("a ```python block inside skill code does not hijack parsing", () => {
+    const code = "Use it like this:\n```python\nexec(open('skills/x/h.py').read())\n```\n";
+    const raw = JSON.stringify({ kind: "content", rationale: "r", ops: [{ op: "skill_upsert", name: "x", skill_md: code, files: { "h.py": "x = 1\n" } }] });
+    expect(parseProposal(raw).ops[0]).toMatchObject({ op: "skill_upsert", name: "x" });
+    expect(parseProposal(`Here:\n${raw}\nthanks`).ops[0]).toMatchObject({ op: "skill_upsert" });
+    expect(parseProposal(`\`\`\`json\n${raw}\n\`\`\``).ops[0]).toMatchObject({ op: "skill_upsert" });
+  });
+});
