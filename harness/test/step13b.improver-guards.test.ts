@@ -41,3 +41,29 @@ describe("interrupted runs", () => {
     expect(existsSync(join(repo, "versions", "BEST.tmp"))).toBe(false);
   });
 });
+
+describe("review fixes before stage 2", () => {
+  test("cut-off format is validated (17.15 → error, not silently off)", () => {
+    expect(() => pastCutoff("17.15")).toThrow(/HH:MM/);
+  });
+
+  test("negative memory comes from disk: rejected children of the parent, across restarts", async () => {
+    const { rejectedMemory } = await import("../src/improver/loop.ts");
+    const repo = mkdtempSync(join(tmpdir(), "mem-"));
+    cpSync(join(ROOT, "versions"), join(repo, "versions"), { recursive: true });
+    cpSync(join(repo, "versions", "v000"), join(repo, "versions", "v001"), { recursive: true });
+    const mp = join(repo, "versions", "v001", "manifest.json");
+    writeFileSync(mp, JSON.stringify({ ...JSON.parse(readFileSync(mp, "utf8")), id: "v001", parent: "v000", status: "rejected", change_summary: "tried X" }));
+    writeFileSync(join(repo, "versions", "v001", "metrics.json"), JSON.stringify({ reject_reason: "gate: mean gain 1 < T=5" }));
+    expect(rejectedMemory(repo, "v000")).toEqual([{ id: "v001", summary: "tried X", reason: "gate: mean gain 1 < T=5" }]);
+    expect(rejectedMemory(repo, "v001")).toEqual([]);
+  });
+
+  test("T is frozen in config/gate.json once computed", async () => {
+    const { frozenT } = await import("../src/improver/loop.ts");
+    const repo = mkdtempSync(join(tmpdir(), "gt-"));
+    cpSync(join(ROOT, "config"), join(repo, "config"), { recursive: true });
+    writeFileSync(join(repo, "config", "gate.json"), JSON.stringify({ k: 3, T: 5, from_version: "v000" }));
+    expect(frozenT(repo)).toEqual({ k: 3, T: 5, from_version: "v000" });
+  });
+});

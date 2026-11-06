@@ -44,8 +44,29 @@ export function canAffordValidation(o: { remainingUsd: number; parentCostPerRunU
 
 export function pastCutoff(hhmm: string | undefined, now = new Date()): boolean {
   if (!hhmm) return false;
+  if (!/^\d{2}:\d{2}$/.test(hhmm)) throw new Error(`cut-off must be HH:MM, got ${hhmm}`);
   const [h, m] = hhmm.split(":").map(Number);
   return now.getHours() * 60 + now.getMinutes() > h * 60 + m;
+}
+
+/** Negative memory from disk (survives restarts): rejected children of `parent`. */
+export function rejectedMemory(repo: string, parent: string): Array<{ id: string; summary: string; reason: string }> {
+  return readdirSync(join(repo, "versions"))
+    .filter((d) => /^v\d{3}$/.test(d) && existsSync(join(repo, "versions", d, "manifest.json")))
+    .sort()
+    .map((id) => ({ id, m: JSON.parse(readFileSync(join(repo, "versions", id, "manifest.json"), "utf8")) }))
+    .filter(({ m }) => m.status === "rejected" && m.parent === parent)
+    .map(({ id, m }) => {
+      const mp = join(repo, "versions", id, "metrics.json");
+      const met = existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {};
+      return { id, summary: String(m.change_summary ?? ""), reason: String(met.reject_reason ?? met.gate?.reason ?? "rejected") };
+    });
+}
+
+/** The gate threshold is computed once (from v000) and then read from config/gate.json (SPEC §3.4). */
+export function frozenT(repo: string): { k: number; T: number; from_version: string } | null {
+  const p = join(repo, "config", "gate.json");
+  return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : null;
 }
 
 /** Atomic BEST update (temp file + rename): a kill never leaves a half-written pointer. */
@@ -159,11 +180,19 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
   const existing = pm0.val_run_ids ?? [];
   let parentReady: Promise<string[]> = valRunsOf(parent);
   parentReady.catch(() => {}); // awaited later; avoid an unhandled rejection if it fails first
-  const tRuns = existing.length >= 2 ? existing : await parentReady;
-  const flips = pairFlips(tRuns.map((id) => correctMap(app.db, id)));
-  const T = thresholdT(flips, K);
-  writeFileSync(join(repo, "config", "gate.json"), `${JSON.stringify({ k: K, T, from_version: parent, pair_flips: flips }, null, 2)}\n`);
-  progress("gate", { T, parent, pair_flips: flips });
+  pastCutoff(o.noNewGenerationAfter); // validates the format up front
+  const frozen = frozenT(repo);
+  let T: number;
+  if (frozen) {
+    T = frozen.T;
+    progress("gate", { T, from_version: frozen.from_version, frozen: true });
+  } else {
+    const tRuns = existing.length >= 2 ? existing : await parentReady;
+    const flips = pairFlips(tRuns.map((id) => correctMap(app.db, id)));
+    T = thresholdT(flips, K);
+    writeFileSync(join(repo, "config", "gate.json"), `${JSON.stringify({ k: K, T, from_version: parent, pair_flips: flips }, null, 2)}\n`);
+    progress("gate", { T, parent, pair_flips: flips });
+  }
 
   let consecutiveRejects = 0;
   for (let gen = 1; gen <= o.generations && consecutiveRejects < 3; gen++) {
@@ -175,7 +204,8 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
     try {
       // ANALYZE — domain-based priority: hard fee tasks of all formats first, then the rest.
       progress("analyze", { gen, parent });
-      const rand = mulberry32(1000 + gen);
+      // seed from the next version number: a restarted run does not redraw the same sample
+      const rand = mulberry32(1000 + Number(nextVersionId(repo).slice(1)));
       const shuffled = [...pool].sort(() => rand() - 0.5);
       const fee = shuffled.filter((t) => t.level === "hard" && /fee/i.test(t.question));
       const rest = shuffled.filter((t) => !fee.includes(t));
@@ -208,11 +238,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       const feedback = app.db
         .prepare("SELECT t.user_message AS question, t.answer, f.comment FROM feedback f JOIN turns t ON t.id = f.turn_id WHERE f.rating = 'down' AND f.consumed_by IS NULL")
         .all() as Array<{ question: string; answer: string; comment: string | null }>;
-      const rejectedMem = rejected.map((id) => {
-        const m = JSON.parse(readFileSync(join(repo, "versions", id, "manifest.json"), "utf8"));
-        const met = JSON.parse(readFileSync(join(repo, "versions", id, "metrics.json"), "utf8"));
-        return { id, summary: m.change_summary, reason: met.reject_reason ?? met.gate?.reason ?? "rejected" };
-      });
+      const rejectedMem = rejectedMemory(repo, parent);
 
       // PROPOSE
       progress("propose", { gen, failures: failures.length, slow: slow.length, feedback: feedback.length });
@@ -249,11 +275,11 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
         continue;
       }
 
-      // LEAKCHK — on the changed files only
-      const pf = versionFiles(parentContent);
+      // LEAKCHK — over everything the improver can edit (playbook, skills, tool descriptions), so
+      // literal tables cannot accumulate past the limit across generations; system.md is hand-written.
       const changed = Object.entries(versionFiles(cur.content))
-        .filter(([p, body]) => pf[p] !== body)
-        .map(([, body]) => body)
+        .filter(([p]) => p !== "system.md")
+        .map(([p, body]) => (p === "manifest.json" ? JSON.stringify(cur.content.manifest.tool_descriptions ?? {}) : body))
         .join("\n");
       const leak = leakCheck(changed, leakCtx);
       if (!leak.ok) {
