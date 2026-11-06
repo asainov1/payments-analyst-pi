@@ -257,13 +257,13 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 | POST | `/api/sessions/:id/turns` | `{ message: string }` | `200 text/event-stream` (§4.2) |
 | POST | `/api/sessions/:id/abort` | — | `202` |
 | POST | `/api/feedback` | `{ turn_id, rating: "up"\|"down", comment? }` | `201 { id }` |
-| GET | `/api/versions` | — | `VersionManifest & { metrics }[]` + `best` |
+| GET | `/api/versions` | — | `{ best: VersionId, versions: Array<VersionManifest & { metrics: VersionMetrics \| null }> }` (порядок — по id; `web/src/api.ts` `VersionRow`) |
 | GET | `/api/versions/:id/diff` | — | `text/x-diff` |
 | POST | `/api/versions/:id/promote` | — | `200 { best }` (ручной rollback / forward) |
 | POST | `/api/runs/solve` | `{ tasks_file, version, out, concurrency? }` — пути только под `/io/` или `bundle/tasks/`, иначе `400` | `202 { run_id }`. Тот же `out` + незавершённый run: если run жив — `200 { run_id }` (CLI переподключается к прогрессу), если остановлен — resume. Задачи без `answer` → скоринг пропущен, `correct: null` |
-| POST | `/api/runs/improve` | `{ generations, budget_usd }` | `202 { run_id }` |
+| POST | `/api/runs/improve` | `{ generations, budget_usd }` | `202 { run_id }`; до реализации improver'а (шаги 11–13) — `501 not_implemented` |
 | GET | `/api/runs/:id` | — | `{ run, progress: { done, total, correct? }, usage }` |
-| GET | `/api/runs/:id/events` | — | SSE прогресса |
+| GET | `/api/runs/:id/events` | — | SSE: `progress { done, total, stage }` при каждом изменении (`stage`: `solve` для batch; `analyze`/`propose`/`curate`/`smoke`/`validate`/`gate` для improve), в конце `run.end { status }` (`done`/`stopped_budget`/`failed`); heartbeat 15 с; уже завершённый run → сразу `progress` + `run.end` |
 | GET | `/api/report` | — | per-version metrics + total spend |
 | GET | `/api/budget` | — | `{ cap_usd, spent_usd, remaining_usd }` |
 
@@ -286,6 +286,8 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 
 Порядок гарантирован: `turn.start` → (…)* → `turn.end` | `error`. Heartbeat-комментарий каждые 15 с.
 `outcome` в `turn.end`: `answered` | `clarification` (был `ask_user`, перед этим событие `clarification`) | `limit_exceeded` | `aborted` (`POST /abort`) | `error`. `Usage` в `turn.end` и в `Turn.usage` (`GET /api/sessions/:id`): `{ input, output, cache_read, cache_write, cost_usd, llm_calls, tool_calls }`.
+
+**Статика UI:** `GET /` и прочие не-`/api` пути отдаются из `web/dist` (Fastify static), если сборка есть; SPA-роутинг через `#/…`, fallback не нужен.
 
 ### 4.3 MCP (Streamable HTTP `/mcp` + stdio `harness mcp`)
 
