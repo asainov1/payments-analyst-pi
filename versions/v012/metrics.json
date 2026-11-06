@@ -1,15 +1,15 @@
 {
   "val": {
-    "correct": 70.67,
+    "correct": 71,
     "n": 91,
-    "accuracy": 0.7765567765567766,
+    "accuracy": 0.7802197802197802,
     "by_level": {
-      "hard": 0.75,
+      "hard": 0.7541666666666668,
       "easy": 0.9696969696969697
     },
     "runs": [
       72,
-      69,
+      70,
       71
     ]
   },
@@ -36,7 +36,7 @@
   "cost_per_task_usd": 0.048713906959706954,
   "cache_hit_rate": 0.9399990401158383,
   "latency_p50_s": 8.975,
-  "latency_p95_s": 260.008,
+  "latency_p95_s": 260.007,
   "gate": {
     "parent_correct": 67,
     "cand_correct": 70.67,
@@ -49,5 +49,16 @@
     "cand_cost_per_task": 0.048713906959706954,
     "decision": "promote",
     "reason": "mean +3.67 ≥ T=3, wins 4 / losses 0"
+  },
+  "analyze_run_ids": [
+    "651514fb-956d-42d1-aa68-27ad75bdcf6c",
+    "e13493f5-8b67-4b92-985a-3ea521327ce7"
+  ],
+  "val_repair": {
+    "reason": "py-sandbox restart ~15:59 during val runs 2/3",
+    "runs": [
+      "cef3c472-38ad-496d-8312-44117932917d",
+      "3eb1df62-58ea-4253-844d-d13179f6b6a4"
+    ]
   }
 }

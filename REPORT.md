@@ -78,7 +78,7 @@ _Per generation, filled in at the end: proposal, stage reached, gate numbers, ti
 **v012 promotion is conservative.** py-sandbox was restarted at ~15:59 while v012's val runs 2 and 3
 were in flight: 6 and 10 of their tasks hit sandbox connection errors (6 and 9 of those ended wrong);
 run 1 had none. The restart could only lower the candidate's result — without it the mean would
-likely be higher than 70.67.
+likely be higher than 70.67. **Repaired:** the 16 infra-hit tasks of runs 2 and 3 were re-solved with v012 (selected by the sandbox error, not by correctness): run 2 69 → 70, run 3 71 → 71, so v012 = 72 / 70 / 71, mean **71.0** (+4.0 over v000). Later gates compare against the repaired base.
 
 ## 6. Cost and caching
 
