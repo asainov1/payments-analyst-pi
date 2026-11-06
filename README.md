@@ -5,8 +5,8 @@ Conversational analyst for the merchant-payments dataset, built on [Pi](https://
 set, cost/caching control and Langfuse tracing. Assignment: [`ASSIGNMENT.md`](ASSIGNMENT.md).
 Results: [`REPORT.md`](REPORT.md). Full design, decisions and step log: [`SPEC.md`](SPEC.md).
 
-**Scope:** everything in the Must and Should tiers. **MCP server (Extra mile) was cut** to finish
-the improver in time; the API it would wrap (sessions, turns, feedback, versions) is in place.
+**Scope:** Must and Should tiers, plus the Extra-mile **MCP server** (Streamable HTTP at `/mcp`;
+no stdio transport).
 
 ## Architecture
 
@@ -15,9 +15,11 @@ flowchart LR
   subgraph Clients
     UI[Web UI<br/>chat · improvements]
     CLI[harness CLI<br/>thin HTTP client]
+    MCPC[Claude Code / Codex]
   end
   subgraph harness["harness service (Node/TS, one process)"]
     API[REST + SSE API]
+    MCP[MCP /mcp<br/>Streamable HTTP]
     SM[Pi sessions<br/>one per chat / task]
     BR[Batch runner<br/>concurrent · resumable]
     IMP[Improver<br/>analyze → reflect → curate → gate]
@@ -31,6 +33,8 @@ flowchart LR
   DATA[(bundle/data ro)]
   UI --> API
   CLI --> API
+  MCPC --> MCP
+  MCP --> SM
   API --> SM & BR & IMP
   BR --> SM
   IMP --> BR
@@ -66,6 +70,27 @@ docker compose exec harness harness report          # per-version metrics; --md 
 ```
 
 Tasks without an `answer` field (e.g. the holdout) are solved without scoring.
+
+- **MCP** — the analyst as an MCP server over Streamable HTTP at `http://localhost:8080/mcp`, through
+  the same chat service (budget cap, rate limiter, Langfuse tracing; origin `mcp`).
+  Tools: `ask {question, session_id?, version?}` · `feedback {turn_id, rating, comment?}` · `list_versions {}`.
+  A clarifying question comes back as `needs_clarification`; answer it with `ask` and the same `session_id`.
+
+```bash
+# Claude Code
+claude mcp add --transport http payments http://localhost:8080/mcp
+```
+
+```toml
+# Codex (~/.codex/config.toml)
+[mcp_servers.payments]
+url = "http://localhost:8080/mcp"
+tool_timeout_sec = 300
+```
+
+A turn can take up to `max_turn_s` (260 s for the current best); the server sends progress
+notifications, and for Claude Code set `MCP_TOOL_TIMEOUT=300000` if your client does not reset its
+timeout on progress.
 
 Development on the host:
 
@@ -133,7 +158,7 @@ scripts/import-langfuse.sh langfuse-export.tar.gz && docker compose up -d
 
 ## With another week
 
-- **MCP server** over the existing API (ask / continue / feedback / versions), stdio + Streamable HTTP.
+- **MCP over stdio** as well (today only Streamable HTTP), and MCP resources for traces / versions.
 - **Persist Pi chat sessions** so a service restart keeps conversation context (turns are already stored).
 - **A train/val split by question family**, so the improver learns from the same failure classes the
   gate measures (today: 92 % on train vs 74 % on val for v000, and timeouts appear only on val).

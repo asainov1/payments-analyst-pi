@@ -13,7 +13,7 @@
 
 | # | Критерий | Проверка |
 |---|---|---|
-| A1 | `git clone && cp .env.example .env && docker compose up` поднимает UI, API и Langfuse без ручных шагов (MCP — cut) | чистый клон в `/tmp`, `curl :8080/api/health` → 200, `curl :3000` (Langfuse) → 200 |
+| A1 | `git clone && cp .env.example .env && docker compose up` поднимает UI, API, MCP и Langfuse без ручных шагов | чистый клон в `/tmp`, `curl :8080/api/health` → 200, `curl :3000` (Langfuse) → 200 |
 | A2 | `harness solve --tasks /io/<file>.jsonl --version best --out /io/answers.jsonl` (хостовая `./io` смонтирована в `/io`) пишет по строке на каждую задачу; если в задачах нет `answer` (holdout), скоринг пропускается без ошибки | val: `python scorer/score.py --tasks tasks/val.jsonl --answers io/answers.jsonl` → `missing: 0`; файл без `answer` → `solve` завершается `done`, `answers.jsonl` полный |
 | A3 | `docker compose restart harness` посреди solve, повторный `solve` с тем же `--out` доделывает только оставшиеся задачи; задачи в `running` возвращаются в `pending`, оборванная последняя строка `answers.jsonl` отбрасывается | число **задач**, обработанных во втором запуске, = число не-`done` на момент рестарта |
 | A4 | `harness improve --generations N --budget-usd X` создаёт версии; **≥ 2 промоушена** гейтом на val; отклонённые версии тоже сохранены | `harness report`: v000 `baseline` + ≥ 2 версии `promoted` + ≥ 1 `rejected` |
@@ -25,7 +25,7 @@
 | A10 | Глобальный кап $135 (+ $15 резерв под holdout вне капа) и per-turn / per-task лимиты реально останавливают работу | тест с `GLOBAL_BUDGET_USD=0.01` → 402 / run `stopped_budget` |
 | A11 | 👍/👎 сохраняются и попадают во вход improver | `harness improve` логирует `feedback_items: N` |
 | A12 | Version selector: чат с любой версией; rollback = смена `best` | UI + `POST /api/versions/:id/promote` |
-| A13 | ~~(Extra) MCP~~ — **cut** (решение 14:30: improver к 16:00 важнее; API, которое MCP оборачивал бы, есть) | — |
+| A13 | ✅ (Extra) MCP по Streamable HTTP `/mcp` (7091967): `ask` (multi-turn по `session_id`, выбор версии), trace URL + cost, `feedback`, `list_versions`; через тот же ChatService (бюджет, лимитер, Langfuse, origin = mcp) | живая проверка на :8080: `ask` → `needs_clarification` → `ask(session_id)` → `answered`, feedback ok |
 | A14 | Improver не трогает `data/`, `tasks/`, `scorer/`, не хранит ответы задач; инструменты агента не видят `tasks/` / `scorer/`; у python-sandbox нет egress | `sha256sum -c` по scorer; leak-check тест; vitest «tool не читает val.jsonl» (`sql`: `read_json_auto('…/val.jsonl')` → ошибка; `python`: `open('/bundle/tasks/val.jsonl')` → `FileNotFoundError`); `python`: `urllib.urlopen('https://example.com')` и `subprocess curl` → ошибка сети |
 
 ---
@@ -291,7 +291,7 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 
 **Статика UI:** `GET /` и прочие не-`/api` пути отдаются из `web/dist` (Fastify static), если сборка есть; SPA-роутинг через `#/…`, fallback не нужен.
 
-### 4.3 ~~MCP (Streamable HTTP `/mcp` + stdio `harness mcp`)~~ — cut (см. §8); контракт ниже не реализован
+### 4.3 MCP (Streamable HTTP `/mcp`; stdio не делали)
 
 | Tool | Вход | Выход |
 |---|---|---|
@@ -399,7 +399,7 @@ zimran-task/
 | 13 | **Прогон improve (фон)**: этап 1 ($20, 1 поколение), этап 2 ($60, 5 поколений, отсечка 17:15) | ≥ 2 `promoted` |
 | 16 ✅ | **UI Improvements:** таблица версий, дифф, кнопка «improve» с бюджетом, promote/rollback | запуск improve из UI виден в прогрессе |
 | 17 ✅ | **👎 → improver** | `improve` логирует `feedback_items > 0`, 👎-ход попадает в ANALYZE |
-| 18 ✂️ cut | **MCP** (Streamable HTTP; stdio = прокси к `:8080`, чтобы шёл через общий Governor) | Claude Code и Codex: `ask` → `needs_clarification` → `ask` с session_id → `answered` |
+| 18 ✅ | **MCP** (Streamable HTTP `/mcp` в том же Fastify; stdio не делали) — 7091967 | Claude Code / Codex: `ask` → `needs_clarification` → `ask` с `session_id` → `answered`; `test/step18.mcp.test.ts` |
 | 19 ✅ | **Чистый клон** | `scripts/clean-clone-test.sh` зелёный (A1, A2 включая holdout-файл без `answer`) |
 | 20 | **Финализация deliverables** (§9): заморозка best, report-holdout для best, экспорт Langfuse, README / REPORT | чек-лист §9.3 закрыт |
 
@@ -483,8 +483,8 @@ zimran-task/
 
 ## 8. Что режем, если не успеваем (по порядку)
 
-1. ~~MCP stdio-транспорт~~ — **срезан вместе с MCP** (решение 14:30: improver к 16:00 важнее).
-2. ~~MCP целиком (Extra mile, шаг 18)~~ — **срезан**.
+1. ~~MCP stdio-транспорт~~ — **срезан** (сделан только Streamable HTTP `/mcp`).
+2. MCP целиком (Extra mile, шаг 18) — сделан параллельной сессией к 17:00 (7091967).
 3. Кнопка запуска improve из UI (оставить CLI; таблица версий остаётся).
 4. Подтверждение flipped-задач в гейте (оставить `cand − parent ≥ T` / 0 регрессий easy / cost-guard).
 5. Smoke-этап improver (сразу val; дороже, но проще).
@@ -504,7 +504,7 @@ zimran-task/
 | # | Deliverable | Как получается | Когда начинаем | Проверка |
 |---|---|---|---|---|
 | D1 | **Git repo**, `docker compose up` из чистого клона | `bundle/` (данные, задачи, скорер) в репо, `.env.example`, compose со всеми сервисами; без локальных путей и ручных шагов | шаг 3 (compose), финал — шаг 19 | `scripts/clean-clone-test.sh`: `git clone` во временную папку → `cp .env.example .env` + ключ → `up -d` → health → `solve` на 3 задачах |
-| D2 | **README.md** | Архитектура (mermaid из §2), как запустить (compose, CLI в контейнере; MCP — cut), решения и компромиссы (из §7), «что бы сделал за ещё неделю» | скелет после шага 3, дополняется на каждом шаге | все команды из README выполнены в clean-clone-test |
+| D2 | **README.md** | Архитектура (mermaid из §2), как запустить (compose, CLI в контейнере, MCP one-liners для Claude Code / Codex), решения и компромиссы (из §7), «что бы сделал за ещё неделю» | скелет после шага 3, дополняется на каждом шаге | все команды из README выполнены в clean-clone-test |
 | D3 | **REPORT.md** | Автогенерация `harness report --md`: per-version val (по уровням), cost, $/task, cache hit rate, p50/p95, change_summary, gate decision, promoted / rejected, total spend (ledger + сверка с LiteLLM `/key/info`). Руками: «что не сработало», оценка шума | с шага 9 (baseline) | цифры в REPORT совпадают с `/api/report` и Langfuse |
 | D4 | **Frozen `best`** | `versions/BEST` + каталог версии в git, тег `best-frozen`; `manifest.json` фиксирует модели / thinking / лимиты; `harness solve --tasks /io/holdout.jsonl --version best --out /io/answers.jsonl` читает версию только из репо; holdout кладут в `./io/` | после последнего промоушена | `git checkout best-frozen && solve` на val даёт тот же score ± T; файл без `answer` отрабатывает |
 | D5 | **Langfuse data** | `scripts/export-langfuse.sh`: `pg_dump` (Postgres) + `clickhouse-backup` / `BACKUP TABLE … TO File` (ClickHouse) + `mc mirror` (MinIO) → `langfuse-export.tar.zst` (+ `import-langfuse.sh`). Дополнительно JSON-экспорт трейсов отчётных run'ов через публичный API Langfuse (запасной вариант, если volume не поднимется) | шаг 3 (скрипт и проверка импорта) | импорт в чистый compose → трейсы отчётных run'ов открываются по `trace_url` из REPORT |
@@ -529,7 +529,7 @@ zimran-task/
 - [ ] `sha256` скорера совпадает, `bundle/` не изменён (`git diff --stat bundle/` пуст)
 - [ ] в репо нет `.env` и ключа: `git grep -F "$(grep LITELLM_API_KEY .env | cut -d= -f2)"` пуст (просто `git grep sk-` даёт ложные срабатывания на `sk-lf-local` Langfuse)
 - [ ] REPORT.md: таблица версий, total spend, шум, «что не сработало», уверенность
-- [ ] README.md: диаграмма, запуск, решения, «ещё неделя», MCP — cut
+- [ ] README.md: диаграмма, запуск, MCP one-liners, решения, «ещё неделя»
 - [ ] `langfuse-export.tar.zst` проверен импортом; ссылка или файл приложен
 - [ ] **все фоновые прогоны (improve, solve, эксперименты) остановлены** — `docker compose ps`, `ps aux | grep harness` пусто
 - [ ] **остаток ключа по `x-litellm-key-spend` (заголовок ответа LiteLLM) ≥ $15 (holdout) + ~$3 (демо)**; `/key/info` для нашего ключа отдаёт `spend 0` — не годится
