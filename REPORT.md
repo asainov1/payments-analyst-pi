@@ -15,6 +15,21 @@ Final tables (per version: val, cost, cache hit, p50/p95, what changed) are gene
 Model choice (rule fixed before the run): Haiku if at most 2 of 20 behind Sonnet on 20 stratified
 improve-train tasks — Haiku 18/20 at $0.0017/task vs Sonnet 19/20 at $0.0110/task.
 
+## Baseline revision: v000 on Sonnet
+
+| Run | Correct | Acc | $/task | p50 / p95 s | Cache hit |
+|---|---|---|---|---|---|
+| improve-train, Haiku | 127/148 | 85.8% | 0.0026 | 7.7 / 35 | 88.4% |
+| improve-train, Sonnet | 136/148 | 91.9% | 0.0126 | 6.0 / 19 | 95.5% |
+| val #1, Sonnet | 67/91 | 73.6% | 0.0381 | 8.9 / 180 | 94.1% |
+| val #2, Sonnet | 67/91 | 73.6% | 0.0404 | 9.9 / 180 | 94.1% |
+
+The step-9 rule on 20 stratified improve-train tasks chose Haiku. A second rule fixed in advance
+(keep Haiku if at most 5 pp behind on the full improve-train and cheaper per correct answer) gave a
+6.1 pp gap → Sonnet; val ×2 on Sonnet followed. The 20-task rule did not predict the val gap
+(+26 tasks on val vs 6 pp on train). The baseline was revised before the improver started; every
+gate compares against Sonnet-v000. Between the two Sonnet val runs 6 tasks flip → T₃ = 3.
+
 ## Notes for the final report
 
 - **Noise.** Two identical val runs of v000 disagree on 17 of 91 tasks (39 vs 42 correct). A single
@@ -24,6 +39,9 @@ improve-train tasks — Haiku 18/20 at $0.0017/task vs Sonnet 19/20 at $0.0110/t
   39–43%. The improver learns from train, where it sees 21 failures (mostly small numeric errors),
   while val failures are mostly far-off answers and turn-limit timeouts (9–11 of 91 hit 180 s).
   Gains found on train may not transfer to val; the gate on val is what decides.
+- **Timeouts are a val-only failure class.** On val (Sonnet) 20 of 91 tasks run > 60 s and 12–16
+  hit the 180 s turn limit — half or more of the 24 failures. On improve-train no task runs > 60 s
+  (Haiku or Sonnet). An improver that learns from train trajectories cannot observe this class.
 - **Holdout uncertainty.** The organisers' holdout has different questions; given the gap above,
   neither the train nor the val accuracy is a reliable estimate for it. We report val (mean of 3)
   and report-holdout (held-out train) for the frozen best, and do not claim more than that.
