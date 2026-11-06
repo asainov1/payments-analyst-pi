@@ -15,7 +15,7 @@ import { phaseBudgetGuard, stratifiedSample } from "./baseline-lib.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const PHASE_LIMIT_USD = 25;
-const CONCURRENCY = Number(process.env.BASELINE_CONCURRENCY ?? 6);
+const CONCURRENCY = Number(process.env.BASELINE_CONCURRENCY ?? 12);
 const MODELS = { sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5" } as const;
 
 type Task = { task_id: string; level: string; question: string; guidelines: string; answer: string };

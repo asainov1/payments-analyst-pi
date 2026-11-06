@@ -50,7 +50,7 @@ export async function createRuntime(o: { repoRoot: string; stateDir?: string; en
 
   const db = openDb(join(stateDir, "harness.db"));
   const ledger = new BudgetLedger(db, { capUsd: Number(env.GLOBAL_BUDGET_USD ?? 135) });
-  const governor = new Governor({ ledger, concurrency: Number(env.LLM_CONCURRENCY ?? 8), rpm: Number(env.LLM_RPM ?? 120) });
+  const governor = new Governor({ ledger, concurrency: Number(env.LLM_CONCURRENCY ?? 12), rpm: Number(env.LLM_RPM ?? 240) });
   const prices = loadPrices(join(o.repoRoot, "config", "prices.json"));
   const proxy = new LlmProxy({ upstream: env.LITELLM_BASE_URL, apiKey: env.LITELLM_API_KEY, governor, prices });
   const proxyUrl = await proxy.start();

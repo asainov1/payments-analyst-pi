@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   const app = await createRuntime({ repoRoot: ROOT, stateDir: env.STATE_DIR });
   const ioDir = env.IO_DIR ?? join(ROOT, "io");
   mkdirSync(ioDir, { recursive: true });
-  const runner = new BatchRunner({ db: app.db, solver: app.solver(), concurrency: Number(env.BATCH_CONCURRENCY ?? 6), ioDir, repoRoot: ROOT, warmup: true });
+  const runner = new BatchRunner({ db: app.db, solver: app.solver(), concurrency: Number(env.BATCH_CONCURRENCY ?? 12), ioDir, repoRoot: ROOT, warmup: true });
   const chat = new ChatService({ db: app.db, repoRoot: ROOT, factory: app.chatFactory, baseTools: app.chatTools, onUsage: app.onUsage, tracing: app.tracing });
   const server = buildServer({
     runner,
