@@ -3,12 +3,14 @@ import { ApiError, api, streamTurn, type Usage, type VersionRow } from "../api.t
 
 type Step = { call_id: string; tool: string; args: unknown; ok?: boolean; preview?: string; ms?: number };
 
+/** Text and tool calls in arrival order: the agent's reasoning interleaves with its tool use. */
+type Item = { kind: "text"; text: string } | { kind: "step"; step: Step };
+
 type Turn = {
   key: string;
   user: string;
   turnId?: string;
-  steps: Step[];
-  text: string;
+  items: Item[];
   clarification?: { question: string; options?: string[] };
   answer?: { answer: string; assumptions: string[]; valid: boolean };
   end?: { outcome: string; usage: Usage; cache_hit_rate: number; latency_ms: number; trace_url: string };
@@ -19,6 +21,20 @@ type Turn = {
 };
 
 const fmtUsd = (v: number) => (v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(3)}`);
+
+/** Minimal inline markdown (**bold**, `code`) as React nodes — model output is never injected as HTML. */
+function Inline({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return <>{parts.map((p, i) =>
+    p.startsWith("**") && p.endsWith("**") && p.length > 4 ? <strong key={i}>{p.slice(2, -2)}</strong>
+      : p.startsWith("`") && p.endsWith("`") && p.length > 2 ? <code key={i}>{p.slice(1, -1)}</code>
+      : <span key={i}>{p}</span>)}</>;
+}
+
+function appendText(items: Item[], delta: string): Item[] {
+  const last = items.at(-1);
+  return last?.kind === "text" ? [...items.slice(0, -1), { kind: "text", text: last.text + delta }] : [...items, { kind: "text", text: delta }];
+}
 
 export function Chat() {
   const [versions, setVersions] = useState<VersionRow[]>([]);
@@ -41,7 +57,7 @@ export function Chat() {
     if (!text || running) return;
     setInput("");
     const key = crypto.randomUUID();
-    setTurns((ts) => [...ts, { key, user: text, steps: [], text: "", running: true }]);
+    setTurns((ts) => [...ts, { key, user: text, items: [], running: true }]);
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
@@ -53,9 +69,9 @@ export function Chat() {
       for await (const ev of streamTurn(sid, text, ctrl.signal)) {
         switch (ev.type) {
           case "turn.start": update(key, (t) => ({ ...t, turnId: ev.data.turn_id, traceUrl: ev.data.trace_url })); break;
-          case "tool.start": update(key, (t) => ({ ...t, steps: [...t.steps, { call_id: ev.data.call_id, tool: ev.data.tool, args: ev.data.args }] })); break;
-          case "tool.end": update(key, (t) => ({ ...t, steps: t.steps.map((s) => (s.call_id === ev.data.call_id ? { ...s, ok: ev.data.ok, preview: ev.data.preview, ms: ev.data.ms } : s)) })); break;
-          case "text.delta": update(key, (t) => ({ ...t, text: t.text + ev.data.delta })); break;
+          case "tool.start": update(key, (t) => ({ ...t, items: [...t.items, { kind: "step", step: { call_id: ev.data.call_id, tool: ev.data.tool, args: ev.data.args } }] })); break;
+          case "tool.end": update(key, (t) => ({ ...t, items: t.items.map((it) => (it.kind === "step" && it.step.call_id === ev.data.call_id ? { kind: "step", step: { ...it.step, ok: ev.data.ok, preview: ev.data.preview, ms: ev.data.ms } } : it)) })); break;
+          case "text.delta": update(key, (t) => ({ ...t, items: appendText(t.items, ev.data.delta) })); break;
           case "clarification": update(key, (t) => ({ ...t, clarification: ev.data })); break;
           case "answer": update(key, (t) => ({ ...t, answer: ev.data })); break;
           case "turn.end": update(key, (t) => ({ ...t, end: ev.data, traceUrl: ev.data.trace_url })); break;
@@ -115,22 +131,21 @@ export function Chat() {
         {turns.map((t) => (
           <div className="turn" key={t.key}>
             <div className="user">{t.user}</div>
-            {t.steps.length > 0 && (
-              <ol className="steps" data-testid="steps">
-                {t.steps.map((s) => (
-                  <li key={s.call_id}>
-                    <details>
-                      <summary>
-                        <code>{s.tool}</code> {s.ok === undefined ? "running…" : s.ok ? `ok · ${s.ms} ms` : `failed · ${s.ms} ms`}
-                      </summary>
-                      <pre>{JSON.stringify(s.args, null, 2)}</pre>
-                      {s.preview && <pre>{s.preview}</pre>}
-                    </details>
-                  </li>
-                ))}
-              </ol>
-            )}
-            {t.text && <div className="assistant">{t.text}</div>}
+            <div className="timeline" data-testid="steps">
+              {t.items.map((it, i) =>
+                it.kind === "text" ? (
+                  <div className="assistant" key={i}><Inline text={it.text} /></div>
+                ) : (
+                  <details className="step" key={it.step.call_id}>
+                    <summary>
+                      🔧 <code>{it.step.tool}</code> {it.step.ok === undefined ? "running…" : it.step.ok ? `ok · ${it.step.ms} ms` : `failed · ${it.step.ms} ms`}
+                    </summary>
+                    <pre>{JSON.stringify(it.step.args, null, 2)}</pre>
+                    {it.step.preview && <pre>{it.step.preview}</pre>}
+                  </details>
+                ),
+              )}
+            </div>
             {t.clarification && (
               <div className="clarification" data-testid="clarification">
                 <strong>Clarification needed:</strong> {t.clarification.question}
