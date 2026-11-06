@@ -82,6 +82,9 @@ scripts/clean-clone-test.sh   # clone → compose up → health + one solve, on 
 
 _Filled in at the end from `harness report --md` (see REPORT.md)._
 
+<!-- versions:start -->
+<!-- versions:end -->
+
 ## Key design decisions
 
 Full table with trade-offs: SPEC §7.
