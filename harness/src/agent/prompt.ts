@@ -18,6 +18,11 @@ const BATCH_RULES = `## Batch mode
 Nobody can answer clarifying questions in this mode. If the question is ambiguous, choose the most reasonable interpretation and list it in \`assumptions\`.
 Always finish by calling \`submit_answer\` with the final answer in exactly the format the answer guidelines require.`;
 
+const CHAT_RULES = `## Chat mode
+- If the question is ambiguous (missing merchant, period, card scheme, or several plausible readings that give different numbers), call \`ask_user\` with one concise question (and options when they are known) instead of guessing.
+- Follow-up messages refer to results earlier in this conversation ("now split that by card scheme" = same filters, new grouping).
+- Reply with the result first, then a short explanation of how it was computed (tables/filters used).`;
+
 export async function buildSystemPrompt(opts: { versionDir: string; dataDir: string; db: DataDb; mode?: PromptMode }): Promise<string> {
   const system = readFileSync(join(opts.versionDir, "system.md"), "utf8").trim();
   const manual = readFileSync(join(opts.dataDir, "manual.md"), "utf8").trim();
@@ -28,7 +33,7 @@ export async function buildSystemPrompt(opts: { versionDir: string; dataDir: str
     `## Rules manual (manual.md)\n\n${manual}`,
     `## Data schema\n\nDuckDB tables (query with the \`sql\` tool):\n${schema}`,
     playbook,
-    ...(opts.mode === "batch" ? [BATCH_RULES] : []),
+    ...(opts.mode === "batch" ? [BATCH_RULES] : opts.mode === "chat" ? [CHAT_RULES] : []),
   ].join("\n\n---\n\n");
 }
 

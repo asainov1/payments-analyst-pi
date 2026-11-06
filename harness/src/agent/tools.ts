@@ -18,7 +18,15 @@ export interface AnalystToolOptions {
   python?: { url: string; session: string; version: string };
 }
 
-export function analystTools(o: AnalystToolOptions): ToolDefinition[] {
+export interface DataToolOptions {
+  db: DataDb;
+  dataDir: string;
+  /** py-sandbox; omitted → no python tool. */
+  python?: { url: string; session: string; version: string };
+}
+
+/** Tools over the data shared by chat and batch: sql, read_manual (+ python when a sandbox is configured). */
+export function dataTools(o: DataToolOptions): ToolDefinition[] {
   const sql = defineTool({
     name: "sql",
     label: "SQL",
@@ -45,6 +53,11 @@ export function analystTools(o: AnalystToolOptions): ToolDefinition[] {
     },
   });
 
+  return [sql, manual, ...(o.python ? [pythonTool(o.python)] : [])] as ToolDefinition[];
+}
+
+/** Batch analyst: data tools + submit_answer bound to the task's answer slot. */
+export function analystTools(o: AnalystToolOptions): ToolDefinition[] {
   const submit = defineTool({
     name: "submit_answer",
     label: "Submit answer",
@@ -61,5 +74,5 @@ export function analystTools(o: AnalystToolOptions): ToolDefinition[] {
     },
   });
 
-  return [sql, manual, submit, ...(o.python ? [pythonTool(o.python)] : [])] as ToolDefinition[];
+  return [...dataTools(o), submit as ToolDefinition];
 }

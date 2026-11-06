@@ -47,6 +47,26 @@ const MIGRATIONS: string[] = [
    ALTER TABLE ledger ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE ledger ADD COLUMN ms INTEGER;`,
   `ALTER TABLE run_tasks ADD COLUMN ms INTEGER;`,
+  `CREATE TABLE sessions (
+     id TEXT PRIMARY KEY,
+     version TEXT NOT NULL,
+     origin TEXT NOT NULL CHECK (origin IN ('ui','mcp')),
+     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+   );
+   CREATE TABLE turns (
+     id TEXT PRIMARY KEY,
+     session_id TEXT NOT NULL REFERENCES sessions(id),
+     idx INTEGER NOT NULL,
+     user_message TEXT NOT NULL,
+     outcome TEXT NOT NULL,
+     answer TEXT,
+     assumptions_json TEXT NOT NULL DEFAULT '[]',
+     usage_json TEXT NOT NULL,
+     latency_ms INTEGER NOT NULL,
+     trace_url TEXT,
+     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+     UNIQUE (session_id, idx)
+   );`,
 ];
 
 export type Db = DatabaseSync;

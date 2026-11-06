@@ -10,7 +10,8 @@
     "test:live": "node --env-file=../.env --test test/live/*.test.ts",
     "lint": "biome check src test && tsc --noEmit",
     "harness": "node src/cli/harness.ts",
-    "test:docker": "node --test test/docker/*.test.ts"
+    "test:docker": "node --test test/docker/*.test.ts",
+    "serve": "node --env-file=../.env src/server/main.ts"
   },
   "dependencies": {
     "@duckdb/node-api": "1.5.6-r.2",

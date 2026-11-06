@@ -49,7 +49,8 @@ export async function createPiRuntime(o: { proxyUrl: string; prices: PriceTable;
 }
 
 export interface PiSessionOptions {
-  ref: string;
+  /** Ledger attribution; a function lets a chat session attribute each turn separately. */
+  ref: string | (() => string);
   scope: LedgerScope;
   budgetUsd?: number | null;
   model: ModelConfig;
@@ -85,7 +86,7 @@ export async function createPiSession(rt: PiRuntime, o: PiSessionOptions): Promi
     extensionFactories: [
       (pi) => {
         pi.on("before_provider_headers", (event) => {
-          event.headers["x-harness-ref"] = o.ref;
+          event.headers["x-harness-ref"] = typeof o.ref === "function" ? o.ref() : o.ref;
           event.headers["x-harness-scope"] = o.scope;
           event.headers["x-harness-max-tokens"] = String(o.model.maxTokens);
           if (o.budgetUsd != null) event.headers["x-harness-budget-usd"] = String(o.budgetUsd);
