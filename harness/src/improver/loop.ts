@@ -11,6 +11,7 @@ import type { AppRuntime } from "../runtime/app.ts";
 import { BudgetExhausted } from "../runtime/budget.ts";
 import { curate } from "./curator.ts";
 import { earlyStop, gateDecision, pairFlips, thresholdT } from "./gate.ts";
+import { labelFailure } from "./labels.ts";
 import { buildLeakContext, leakCheck } from "./leakcheck.ts";
 import { buildReflectorPrompt, runReflector, type Trajectory } from "./reflector.ts";
 import { buildIdentifierAllowList, unknownIdentifiers } from "./schemacheck.ts";
@@ -276,7 +277,9 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
                 ? "too high"
                 : "too low"
             : undefined;
-        return { level: t.level, question: t.question, guidelines: t.guidelines, answer: r.answer, verdict, hint: [hint, note].filter(Boolean).join("; ") || undefined, ms: r.ms, steps: r.trace_json ? JSON.parse(r.trace_json).steps : [] };
+        const trace = r.trace_json ? JSON.parse(r.trace_json) : null;
+        const label = verdict === "wrong" ? labelFailure({ answer: r.answer ?? "", gold: t.answer, ms: r.ms, maxTurnS: readVersion(repo, parent).manifest.limits.max_turn_s, trace }) : undefined;
+        return { level: t.level, question: t.question, guidelines: t.guidelines, answer: r.answer, verdict, hint: [hint, note].filter(Boolean).join("; ") || undefined, label, ms: r.ms, steps: trace?.steps ?? [] };
       };
       // Unstable: the two runs disagree. Show the failing trajectory, plus only the tool sequence of
       // the successful one (no outputs, no final answer → no gold value reaches the reflector).

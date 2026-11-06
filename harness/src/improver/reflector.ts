@@ -27,6 +27,8 @@ export interface Trajectory {
   verdict: "wrong" | "correct_but_slow";
   /** numeric answers: "too high" / "too low" / "off by > 50%" … — never the gold value */
   hint?: string;
+  /** deterministic failure label (labels.ts) */
+  label?: import("./labels.ts").FailureLabel;
   ms: number;
   steps: Array<{ tool?: string; args?: string; output?: string; error?: boolean; say?: string }>;
 }
@@ -72,6 +74,19 @@ Steps:
 ${steps || "  (none)"}`;
 }
 
+function renderFailures(failures: Trajectory[]): string {
+  if (!failures.some((f) => f.label)) return `## Failed trajectories (${failures.length})\n${failures.map(renderTrajectory).join("\n\n")}`;
+  const groups = new Map<string, Trajectory[]>();
+  for (const f of failures) groups.set(f.label ?? "other", [...(groups.get(f.label ?? "other") ?? []), f]);
+  const ordered = [...groups].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  let i = 0;
+  return [
+    `## Failed trajectories (${failures.length}) — Failure clusters: ${ordered.map(([l, g]) => `${l} ${g.length}`).join(", ")}`,
+    "Labels are deterministic (timeout, invalid_format, not_applicable, numeric_high/low, other). Prefer to fix the largest cluster with one general rule.",
+    ...ordered.map(([l, g]) => `### Cluster ${l} (${g.length})\n${g.map((t) => renderTrajectory(t, i++)).join("\n\n")}`),
+  ].join("\n\n");
+}
+
 export function buildReflectorPrompt(o: {
   parent: VersionContent;
   failures: Trajectory[];
@@ -100,7 +115,7 @@ export function buildReflectorPrompt(o: {
       : "",
     pressure ? `## LIMIT PRESSURE\nThe playbook is at ≥ 80% of its limits. Your proposal MUST NOT increase the number of rules: add only via playbook_merge or together with playbook_remove.` : "",
     o.rejected.length ? `## Already tried and rejected — do not repeat\n${o.rejected.map((r) => `- ${r.id}: ${r.summary} → ${r.reason}`).join("\n")}` : "",
-    `## Failed trajectories (${o.failures.length})\n${o.failures.map(renderTrajectory).join("\n\n")}`,
+    renderFailures(o.failures),
     o.slow.length ? `## Correct but slow trajectories (${o.slow.length})\n${o.slow.map(renderTrajectory).join("\n\n")}` : "",
     o.feedback.length ? `## User 👎 feedback\n${o.feedback.map((f) => `- Q: ${f.question}\n  A: ${f.answer}\n  comment: ${f.comment ?? "(none)"}`).join("\n")}` : "",
     "Return the JSON proposal now.",
