@@ -1,0 +1,41 @@
+{
+  "val": {
+    "correct": 68.67,
+    "n": 91,
+    "accuracy": 0.7545787545787547,
+    "by_level": {
+      "hard": 0.7333333333333334,
+      "easy": 0.9090909090909091
+    },
+    "runs": [
+      71,
+      66,
+      69
+    ]
+  },
+  "reflect_cost_usd": 0,
+  "val_run_ids": [
+    "dc9c8495-64ce-4e5d-8903-ca40be9f8d2d",
+    "98ca6933-04cd-47e8-9d0a-7bb38e8194cb",
+    "3a0c8f8c-64a5-4799-bb01-a6934118f55c"
+  ],
+  "cost_usd": 8.350131,
+  "cost_per_task_usd": 0.030586560439560442,
+  "cache_hit_rate": 0.9570756217333531,
+  "latency_p50_s": 75.276,
+  "latency_p95_s": 260.026,
+  "gate": {
+    "parent_correct": 71,
+    "cand_correct": 68.67,
+    "wins": 2,
+    "losses": 5,
+    "confirmed_wins": 2,
+    "easy_regressions": 1,
+    "threshold_T": 3,
+    "parent_cost_per_task": 0.048713906959706954,
+    "cand_cost_per_task": 0.030586560439560442,
+    "decision": "reject",
+    "reason": "mean gain -2.33 < T=3; majority wins−losses -3 < 1; 1 easy regression(s)"
+  },
+  "reject_reason": "gate: mean gain -2.33 < T=3; majority wins−losses -3 < 1; 1 easy regression(s)"
+}

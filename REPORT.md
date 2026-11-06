@@ -97,6 +97,7 @@ _Per generation, filled in at the end: proposal, stage reached, gate numbers, ti
 | stage 2 · 3 (4th process) | **v012 promoted** | routing `max_turn_s` 180 → 260 (reflector, from the val timeout telemetry) | gate | **70.67 vs 67** (runs 72 / 69 / 71), +3.67 ≥ T=3, wins 4 / losses 0, no easy regressions, $/task 0.0487 vs 0.0395 (×1.23 ≤ 1.3) | ~18 min | ≈ $13 |
 | stage 2 · 4 (4th process) | v013 | playbook rule + `fee_matcher` skill (raw fees.json, per-month buckets) | **rejected at gate: 1 easy regression** | 76.33 vs 71.0 (runs 77 / 79 / 73), +5.33 ≥ T=3, wins 6 / losses 3, $/task 0.036 vs 0.049 — passes mean, T and cost, fails the pre-registered no-easy-regression rule | ~23 min | ≈ $13 |
 | last try (16:37, after freeze) | v014 | fee-matching skill from v012 | **rejected at leak-check** (literal table: 11 name→number pairs > 10) — a false positive: the pattern counted code assignments and keyword arguments (`month=5`, `fee_id=123`, `mult = 1`, `tot = 0.0`); no precomputed data values in the diff. Not fixed before the deadline | — | ~1 min | $0.17 |
+| re-test (16:50) | v015 | v013's change (fee skill), fresh val runs, all 3 in parallel; easy-regression rule revised **before** the run (≥ 2 of 3 drop) | **rejected at gate** | **68.67 vs 71.0** (runs 71 / 66 / 69), wins 2 / losses 5 — v013's +5.33 did not replicate | ~9 min | ≈ $8 |
 
 **v012 promotion is conservative.** py-sandbox was restarted at ~15:59 while v012's val runs 2 and 3
 were in flight: 6 and 10 of their tasks hit sandbox connection errors (6 and 9 of those ended wrong);
@@ -155,6 +156,7 @@ per version; cache hit rates per run; $/task per version._
   one-run noise. We did not promote v013 by relaxing the rule after seeing the result. The honest next step:
   fix a revised rule before a run (e.g. an easy regression counts only if the task drops by ≥ 2 of 3 runs)
   and gate a fee-skill candidate with it — ~20 min and ~$13, which did not fit before the deadline.
+- **v013's gain did not replicate (v015).** The same change with three fresh val runs scored 71 / 66 / 69 (mean 68.67) against v012's 71.0 — below the parent. v013's 77 / 79 / 73 were a lucky draw (winner's curse: it was picked because its runs looked good). The gate, with T and the easy-regression rule, rejected v013 correctly. It also shows that selecting a candidate after looking at its val runs needs fresh runs before any promotion.
 - **Two promotions not reached.** 13 candidates in ~2 h: 5 lost to reflector/parse bugs and false pre-filters (fixed during the run), 3 rejected at SMOKE, 1 interrupted, 1 promoted, 1 (v013) rejected at the gate on the easy-regression rule. Most time and money went into finding and fixing harness bugs rather than into validated candidates.
 
 ## 9. Holdout
