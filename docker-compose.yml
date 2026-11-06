@@ -50,7 +50,7 @@ services:
     restart: unless-stopped
     depends_on: *langfuse-depends
     ports:
-      - "${LANGFUSE_WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${LANGFUSE_WEB_PORT:-3000}:3000"
     environment:
       <<: *langfuse-env
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-local-dev-nextauth-secret}
@@ -145,7 +145,7 @@ services:
       LANGFUSE_PUBLIC_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3000}
       PY_SANDBOX_URL: http://py-sandbox:8000
     ports:
-      - "${HARNESS_PORT:-8080}:8080"
+      - "127.0.0.1:${HARNESS_PORT:-8080}:8080"
     volumes:
       - ./bundle:/app/bundle:ro
       - ./versions:/app/versions
