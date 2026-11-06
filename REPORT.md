@@ -42,6 +42,9 @@ gate compares against Sonnet-v000. Between the two Sonnet val runs 6 tasks flip 
 - **Timeouts are a val-only failure class.** On val (Sonnet) 20 of 91 tasks run > 60 s and 12–16
   hit the 180 s turn limit — half or more of the 24 failures. On improve-train no task runs > 60 s
   (Haiku or Sonnet). An improver that learns from train trajectories cannot observe this class.
+- **What the reflector may see from val.** Only gold-independent runtime telemetry of the parent (turns that hit
+  `max_turn_s`, turns > 60 s, p95) — the same kind of signal as a production timeout rate. Val correctness, task ids
+  and question texts reach only the gate. Without it the improver cannot see the timeout class at all.
 - **Holdout uncertainty.** The organisers' holdout has different questions; given the gap above,
   neither the train nor the val accuracy is a reliable estimate for it. We report val (mean of 3)
   and report-holdout (held-out train) for the frozen best, and do not claim more than that.

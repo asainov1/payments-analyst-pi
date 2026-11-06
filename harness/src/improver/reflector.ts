@@ -9,6 +9,14 @@ import { type Tracing, traceTurn } from "../obs/tracer.ts";
 import { LIMITS, type Proposal, underPressure, type VersionContent } from "./curator.ts";
 import { renderPlaybook } from "./playbook.ts";
 
+export interface Telemetry {
+  runs: number;
+  tasks_per_run: number;
+  limit_hits_per_run: number;
+  over_60s_per_run: number;
+  p95_s: number;
+}
+
 export const REFLECTOR_MODEL = "claude-opus-5-5";
 
 export interface Trajectory {
@@ -70,7 +78,11 @@ export function buildReflectorPrompt(o: {
   slow: Trajectory[];
   feedback: Array<{ question: string; answer: string; comment: string | null }>;
   rejected: Array<{ id: string; summary: string; reason: string }>;
+  /** gold-independent runtime telemetry of the current version (no correctness, no task ids) */
+  telemetry?: { val: Telemetry; train: Telemetry };
 }): string {
+  const tel = (name: string, t: Telemetry) =>
+    `- ${name}: on average ${t.limit_hits_per_run} of ${t.tasks_per_run} turns per run hit the max_turn_s limit (${o.parent.manifest.limits.max_turn_s} s), ${t.over_60s_per_run} ran longer than 60 s, p95 ${t.p95_s} s (${t.runs} run(s))`;
   const pressure = underPressure(o.parent.playbook);
   const skills = Object.entries(o.parent.skills)
     .map(([n, f]) => `### ${n}\n${f["SKILL.md"] ?? ""}\nfiles: ${Object.keys(f).join(", ")}`)
@@ -80,6 +92,9 @@ export function buildReflectorPrompt(o: {
     `## Current ${renderPlaybook(o.parent.playbook).replace(/^## /, "")}\n(${o.parent.playbook.rules.length}/${LIMITS.maxRules} rules)`,
     `## Current skills\n${skills || "(none)"}`,
     `## Current routing\nmodel ${o.parent.manifest.models.analyst}, thinking ${o.parent.manifest.thinking}, max_turn_s ${o.parent.manifest.limits.max_turn_s}`,
+    o.telemetry
+      ? `## Runtime telemetry of the current version (wall time only)\n${tel("validation set", o.telemetry.val)}\n${tel("train sample", o.telemetry.train)}\nTurns that hit the limit end without an answer. Consider routing (max_turn_s within 120..300; cost per task must stay ≤ 1.3× the parent's) or rules that make the agent reach an answer with fewer, cheaper steps.`
+      : "",
     pressure ? `## LIMIT PRESSURE\nThe playbook is at ≥ 80% of its limits. Your proposal MUST NOT increase the number of rules: add only via playbook_merge or together with playbook_remove.` : "",
     o.rejected.length ? `## Already tried and rejected — do not repeat\n${o.rejected.map((r) => `- ${r.id}: ${r.summary} → ${r.reason}`).join("\n")}` : "",
     `## Failed trajectories (${o.failures.length})\n${o.failures.map(renderTrajectory).join("\n\n")}`,

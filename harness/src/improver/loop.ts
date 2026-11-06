@@ -28,6 +28,29 @@ export interface ImproveOptions {
   noNewGenerationAfter?: string;
 }
 
+export interface RuntimeTelemetry {
+  runs: number;
+  tasks_per_run: number;
+  limit_hits_per_run: number;
+  over_60s_per_run: number;
+  p95_s: number;
+}
+
+/** Gold-independent runtime telemetry of runs (SPEC §7, variant A): turn-limit hits, > 60 s, p95 —
+ *  from wall time only, never from correctness. */
+export function runtimeTelemetry(db: Db, runIds: string[], maxTurnS: number): RuntimeTelemetry {
+  if (!runIds.length) return { runs: 0, tasks_per_run: 0, limit_hits_per_run: 0, over_60s_per_run: 0, p95_s: 0 };
+  const ms = (db.prepare(`SELECT ms FROM run_tasks WHERE run_id IN (${runIds.map(() => "?").join(",")}) AND ms IS NOT NULL ORDER BY ms`).all(...runIds) as Array<{ ms: number }>).map((r) => r.ms);
+  const per = (n: number) => Math.round((n / runIds.length) * 10) / 10;
+  return {
+    runs: runIds.length,
+    tasks_per_run: per(ms.length),
+    limit_hits_per_run: per(ms.filter((x) => x >= maxTurnS * 1000 - 1000).length),
+    over_60s_per_run: per(ms.filter((x) => x > 60_000).length),
+    p95_s: ms.length ? Math.round(ms[Math.min(ms.length - 1, Math.ceil(0.95 * ms.length) - 1)] / 1000) : 0,
+  };
+}
+
 /** A batch run that did not finish as `done` must never be counted (a failed run would look like 0 correct). */
 export class RunFailed extends Error {}
 
@@ -253,7 +276,17 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
         stateDir: app.stateDir,
         ref: reflectRef,
         improveRunId: o.improveRunId,
-        prompt: buildReflectorPrompt({ parent: parentContent, failures: failures.slice(0, 10), slow: slow.slice(0, 4), feedback, rejected: rejectedMem }),
+        prompt: buildReflectorPrompt({
+          parent: parentContent,
+          failures: failures.slice(0, 10),
+          slow: slow.slice(0, 4),
+          feedback,
+          rejected: rejectedMem,
+          telemetry: {
+            val: runtimeTelemetry(app.db, await parentReady, parentContent.manifest.limits.max_turn_s),
+            train: runtimeTelemetry(app.db, [ar.id], parentContent.manifest.limits.max_turn_s),
+          },
+        }),
       });
       const reflectCost = app.ledger.spentUsd(reflectRef) - before;
       const summary = (refl.proposal?.rationale ?? "").slice(0, 240);

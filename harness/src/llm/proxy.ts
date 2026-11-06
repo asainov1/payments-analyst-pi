@@ -47,6 +47,7 @@ export class LlmProxy extends EventEmitter {
   constructor(opts: LlmProxyOptions) {
     super();
     this.o = { ...opts, upstream: opts.upstream.replace(/\/+$/, "") };
+    this.setMaxListeners(0); // one usage listener per concurrently running task/turn
   }
 
   async start(): Promise<string> {
