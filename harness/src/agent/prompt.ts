@@ -1,6 +1,6 @@
 // System prompt assembly (SPEC §3.2 agent/prompt). Order is chosen for prompt caching: everything
 // that is identical across tasks of one version comes first, the task itself goes into the user turn.
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DataDb } from "../data/db.ts";
 
@@ -28,11 +28,22 @@ export async function buildSystemPrompt(opts: { versionDir: string; dataDir: str
   const manual = readFileSync(join(opts.dataDir, "manual.md"), "utf8").trim();
   const playbook = readFileSync(join(opts.versionDir, "playbook.md"), "utf8").trim();
   const schema = await opts.db.schema();
+  const skillsDir = join(opts.versionDir, "skills");
+  const skills = existsSync(skillsDir)
+    ? readdirSync(skillsDir)
+        .sort()
+        .map((name) => {
+          const md = join(skillsDir, name, "SKILL.md");
+          const files = readdirSync(join(skillsDir, name)).filter((f) => f !== "SKILL.md").sort();
+          return `### Skill: ${name}\n${existsSync(md) ? readFileSync(md, "utf8").trim() : ""}${files.length ? `\n(helper files in skills/${name}/: ${files.join(", ")} — use them from the python tool, e.g. sys.path.insert(0, "skills/${name}"))` : ""}`;
+        })
+    : [];
   return [
     system,
     `## Rules manual (manual.md)\n\n${manual}`,
     `## Data schema\n\nDuckDB tables (query with the \`sql\` tool):\n${schema}`,
     playbook,
+    ...(skills.length ? [`## Skills\n\n${skills.join("\n\n")}`] : []),
     ...(opts.mode === "batch" ? [BATCH_RULES] : opts.mode === "chat" ? [CHAT_RULES] : []),
   ].join("\n\n---\n\n");
 }

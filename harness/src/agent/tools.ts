@@ -8,14 +8,10 @@ import type { AnswerSlot } from "./submit.ts";
 
 const textResult = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 
-export interface AnalystToolOptions {
-  db: DataDb;
-  dataDir: string;
+export interface AnalystToolOptions extends DataToolOptions {
   slot: AnswerSlot;
   /** Batch: an accepted submit_answer ends the turn (no final LLM call). Chat: false — the model writes the answer text. */
   terminateOnSubmit?: boolean;
-  /** py-sandbox; omitted → no python tool. */
-  python?: { url: string; session: string; version: string };
 }
 
 export interface DataToolOptions {
@@ -23,7 +19,11 @@ export interface DataToolOptions {
   dataDir: string;
   /** py-sandbox; omitted → no python tool. */
   python?: { url: string; session: string; version: string };
+  /** Per-version overrides from manifest.tool_descriptions (improver op `tool_description`). */
+  descriptions?: Record<string, string>;
 }
+
+const withDescription = (t: ToolDefinition, d?: Record<string, string>): ToolDefinition => (d?.[t.name] ? { ...t, description: d[t.name] } : t);
 
 /** Tools over the data shared by chat and batch: sql, read_manual (+ python when a sandbox is configured). */
 export function dataTools(o: DataToolOptions): ToolDefinition[] {
@@ -53,7 +53,7 @@ export function dataTools(o: DataToolOptions): ToolDefinition[] {
     },
   });
 
-  return [sql, manual, ...(o.python ? [pythonTool(o.python)] : [])] as ToolDefinition[];
+  return ([sql, manual, ...(o.python ? [pythonTool(o.python)] : [])] as ToolDefinition[]).map((t) => withDescription(t, o.descriptions));
 }
 
 /** Batch analyst: data tools + submit_answer bound to the task's answer slot. */
@@ -74,5 +74,5 @@ export function analystTools(o: AnalystToolOptions): ToolDefinition[] {
     },
   });
 
-  return [...dataTools(o), submit as ToolDefinition];
+  return [...dataTools(o), withDescription(submit as ToolDefinition, o.descriptions)];
 }

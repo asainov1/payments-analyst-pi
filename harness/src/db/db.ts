@@ -75,6 +75,7 @@ const MIGRATIONS: string[] = [
      consumed_by TEXT,
      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
    );`,
+  `ALTER TABLE run_tasks ADD COLUMN trace_json TEXT;`,
 ];
 
 export type Db = DatabaseSync;

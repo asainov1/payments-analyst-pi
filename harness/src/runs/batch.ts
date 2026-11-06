@@ -12,7 +12,7 @@ import { type ScoreSummary, score } from "./score.ts";
 export type Solver = (
   task: { question: string; guidelines: string },
   ctx: { runId: string; taskId: string; version: string },
-) => Promise<{ answer: string }>;
+) => Promise<{ answer: string; trace?: unknown }>;
 
 export type RunStatus = "queued" | "running" | "done" | "stopped_budget" | "failed";
 
@@ -152,6 +152,7 @@ export class BatchRunner {
     let stopped = false;
     const setTask = db.prepare("UPDATE run_tasks SET status = ?, attempts = ?, answer = ?, ms = ? WHERE run_id = ? AND task_id = ?");
 
+    const setTrace = db.prepare("UPDATE run_tasks SET trace_json = ? WHERE run_id = ? AND task_id = ?");
     const solveOne = async (t: TaskLine) => {
       const row = db.prepare("SELECT attempts FROM run_tasks WHERE run_id = ? AND task_id = ?").get(runId, t.task_id) as { attempts: number };
       let attempts = row.attempts;
@@ -160,9 +161,10 @@ export class BatchRunner {
         attempts++;
         setTask.run("running", attempts, null, null, runId, t.task_id);
         try {
-          const { answer } = await solver({ question: t.question, guidelines: t.guidelines }, { runId, taskId: t.task_id, version: run.version });
+          const { answer, trace } = await solver({ question: t.question, guidelines: t.guidelines }, { runId, taskId: t.task_id, version: run.version });
           appendAnswer(run.out_path, t.task_id, answer);
           setTask.run("done", attempts, answer, Date.now() - started, runId, t.task_id);
+          if (trace !== undefined) setTrace.run(JSON.stringify(trace), runId, t.task_id);
           return;
         } catch (e) {
           if (e instanceof BudgetExhausted) {

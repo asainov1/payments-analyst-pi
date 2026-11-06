@@ -39,7 +39,14 @@ export interface SolveTrace {
   costUsd: number;
   limit: string | null;
   traceUrl: string | null;
+  ms: number;
+  /** Compact trajectory for the improver's reflector (tool calls, truncated outputs, model text). */
+  steps: Array<{ tool?: string; args?: string; output?: string; error?: boolean; say?: string }>;
 }
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… [+${s.length - n}]` : s);
+const textOf = (content: unknown): string =>
+  Array.isArray(content) ? content.map((c: any) => (c?.type === "text" ? c.text : "")).join("") : String(content ?? "");
 
 const NUDGE = "You have not called submit_answer yet. Call it now with your final answer in exactly the required format.";
 
@@ -62,6 +69,7 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
       limits: { max_output_tokens: v.limits.max_output_tokens },
     });
     const ref = `${ctx.runId}/${ctx.taskId}`;
+    const pendingArgs = new Map<string, unknown>();
     const slot = new AnswerSlot(task.guidelines);
     // One shared cwd for every session: Pi renders <cwd> into the system prompt, so a per-task cwd
     // would give every task a different prefix and defeat cross-task prompt caching.
@@ -78,6 +86,7 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
         dataDir: d.dataDir,
         slot,
         terminateOnSubmit: true,
+        descriptions: v.tool_descriptions,
         python: d.pythonUrl ? { url: d.pythonUrl, session: ref.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 128), version: ctx.version } : undefined,
       }),
       compaction: false,
@@ -103,8 +112,18 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
         stop(err);
       }
     });
-    const unsubSession = session.subscribe((e) => {
+    const steps: SolveTrace["steps"] = [];
+    const started = Date.now();
+    const unsubSession = session.subscribe((e: any) => {
+      if (e.type === "message_end" && e.message?.role === "assistant") {
+        const say = textOf(e.message.content).trim();
+        if (say) steps.push({ say: clip(say, 400) });
+      }
+      if (e.type === "tool_execution_end") {
+        steps.push({ tool: e.toolName, args: clip(JSON.stringify(e.args ?? pendingArgs.get(e.toolCallId) ?? {}), 700), output: clip(textOf(e.result?.content), 900), error: !!e.isError });
+      }
       if (e.type !== "tool_execution_start") return;
+      pendingArgs.set(e.toolCallId, e.args);
       toolCalls++;
       try {
         limits.onToolCall();
@@ -149,8 +168,11 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
       costUsd,
       limit,
       traceUrl: lf?.traceUrl ?? null,
+      ms: Date.now() - started,
+      steps,
     };
     onTrace?.(ctx.taskId, trace);
-    return { answer: trace.answer };
+    const { steps: s, ...rest } = trace;
+    return { answer: trace.answer, trace: { ...rest, steps: s } };
   };
 }

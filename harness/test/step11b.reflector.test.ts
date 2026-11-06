@@ -1,0 +1,47 @@
+// Reflector prompt and proposal parsing (no LLM): no gold values, pressure note, JSON extraction.
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
+import { buildReflectorPrompt, parseProposal, type Trajectory } from "../src/improver/reflector.ts";
+import { readVersion } from "../src/improver/store.ts";
+
+const ROOT = join(import.meta.dirname, "..", "..");
+const parent = readVersion(ROOT, "v000");
+const failure: Trajectory = {
+  level: "hard",
+  question: "What is the average fee for account type R?",
+  guidelines: "Answer must be just a number rounded to 6 decimals.",
+  answer: "0.512345",
+  verdict: "wrong",
+  hint: "too high",
+  ms: 9000,
+  steps: [{ tool: "sql", args: '{"query":"SELECT 1"}', output: "| 1 |" }],
+};
+
+describe("reflector prompt", () => {
+  test("shows verdict and direction, never a gold value; includes the hard rules", () => {
+    const p = buildReflectorPrompt({ parent, failures: [failure], slow: [], feedback: [], rejected: [] });
+    expect(p).toContain("WRONG (too high)");
+    expect(p).toContain("Agent's final answer: 0.512345");
+    expect(p).not.toMatch(/gold|expected answer|correct answer is/i);
+    expect(p).toContain("## Current Playbook");
+  });
+
+  test("limit pressure note appears when the playbook is ≥ 80 % full; rejected memory listed", () => {
+    const full = structuredClone(parent);
+    full.playbook.rules = Array.from({ length: 32 }, (_, i) => ({ id: `R${String(i + 1).padStart(3, "0")}`, text: `rule ${i}`, added_in: "v000", updated_in: "v000" }));
+    const p = buildReflectorPrompt({ parent: full, failures: [failure], slow: [], feedback: [], rejected: [{ id: "v003", summary: "x", reason: "gate: mean gain 1 < T=5" }] });
+    expect(p).toContain("LIMIT PRESSURE");
+    expect(p).toContain("v003: x → gate: mean gain 1 < T=5");
+  });
+});
+
+describe("parseProposal", () => {
+  const json = '{"kind":"content","rationale":"r","ops":[{"op":"playbook_add","text":"t"}]}';
+  test.each([json, `Here you go:\n\`\`\`json\n${json}\n\`\`\``, `prefix ${json} suffix`])("extracts the JSON object (%#)", (t) => {
+    expect(parseProposal(t)).toMatchObject({ kind: "content", ops: [{ op: "playbook_add" }] });
+  });
+  test("rejects malformed proposals", () => {
+    expect(() => parseProposal('{"kind":"other","ops":[]}')).toThrow();
+    expect(() => parseProposal("no json here")).toThrow();
+  });
+});
