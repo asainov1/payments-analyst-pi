@@ -108,7 +108,7 @@ interface VersionManifest {               // versions/vNNN/manifest.json — в 
   change_summary: string;                 // «что изменилось», 1–3 строки
   models: { analyst: string; reflector: string };   // model routing
   thinking: ThinkingLevel;                // enum Pi 1.x: 'off'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max' (xhigh/max — только если модель поддерживает)
-  limits: { max_tool_calls: number; max_turn_usd: number; max_turn_s: number };
+  limits: { max_tool_calls: number; max_turn_usd: number; max_turn_s: number; max_task_usd: number; max_output_tokens: number };  // не правится improver'ом
   tool_descriptions: Record<ToolName, string>;      // правится improver'ом
 }
 // + versions/vNNN/{system.md, playbook.json, playbook.md, skills/<name>/{SKILL.md, *.py}, diff.patch, metrics.json}
@@ -163,7 +163,7 @@ type ContentOp =
   | { op: 'tool_description'; tool: ToolName; text: string };
 interface RoutingOp {                   // allow-list полей: только { model, thinking }
   op: 'routing';
-  model?: 'claude-opus-5-5' | 'claude-sonnet-5-5' | 'claude-haiku-5-5' | 'gpt-6.1-sol' | 'gemini-3.8-flash'; // → models.analyst
+  model?: 'claude-opus-5-5' | 'claude-sonnet-5-5' | 'claude-haiku-5-5'; // → models.analyst; только модели, зарегистрированные в Pi-провайдере (сейчас claude-*); gpt/gemini — после регистрации их провайдера
   thinking?: ThinkingLevel;             // валидация по enum Pi SDK; лимиты/reflector improver не трогает
 }
 type Proposal =
@@ -218,13 +218,17 @@ PROPOSE  ─ reflector (Opus/Sonnet, Pi-сессия через Tracer) полу
            (content XOR routing; routing — только allow-list {model, thinking}, thinking ∈ enum Pi SDK)
            Давление лимита: если у родителя ≥ 80% любого лимита (≥ 32 правил или ≥ 2400 токенов), в промпт reflector'а
            добавляется обязательное условие «число правил не растёт: новые правила только через merge/remove существующих»
+           Всегда в промпте reflector'а: **запрет хардкода значений из данных** (суммы, счётчики, ставки, списки id, «у мерчанта X объём Y») —
+           правила и skills только описывают, КАК вычислить; числа агент получает запросом к данным в момент ответа
 CURATE   ─ curator применяет ops (детерминированно, без LLM). Reject (версия сохраняется, status=rejected, reject_stage=curator, val=null):
            invalid_op · over_limit (> 40 правил или > 3000 токенов после применения) · growth_under_pressure (родитель ≥ 80% и rules_after > rules_before)
            · empty (после дедупа не осталось изменений). Отдельной LLM-консолидации-кандидата нет: README §2.2 — промоушен только при росте val,
            поэтому консолидация = обычный content-Proposal с merge/remove и проходит обычный гейт
 LEAKCHK  ─ отклонить, если в патче: task_id; ≥ 8-словная n-gram из любого question train/val; любой gold-ответ train/val длиной ≥ 4 символов как литерал;
            упоминание путей `tasks/`, `scorer/`, `*.jsonl`.
-           Gold-литералы, которые встречаются как токены в `data/*`, `manual.md` или тексте guidelines (`GlobalCard`, `Rafa_AI`, `Not Applicable`, …), из словаря исключаются
+           Gold-литералы, которые встречаются как токены в `data/*`, `manual.md` или тексте guidelines (`GlobalCard`, `Rafa_AI`, `Not Applicable`, …), из словаря исключаются;
+           **предвычисленные факты:** reject skill / правила, содержащего литеральную таблицу > 10 пар «имя → число»
+           (dict/map-литерал `'X': 1.23`, строки markdown-таблицы `| X | 1.23 |`, CSV-строки `X,1.23`; считаются по всем файлам кандидата)
 SMOKE    ─ кандидат на (провалы из ANALYZE ∪ 15 случайных пройденных improve-train); продолжаем, если fixed − broken ≥ 2
 VALIDATE ─ полный val (91)
 GATE     ─ promote ⇔ (confirmed_wins − losses ≥ T) ∧ easy_regressions = 0 ∧ cand_cost_per_task ≤ 1.3 × parent_cost_per_task,
@@ -378,7 +382,7 @@ zimran-task/
 | 14 | **API сессий + SSE**, multi-turn, `ask_user` | `curl -N` показывает поток событий; follow-up использует контекст |
 | 15 | **UI Chat (тонкий):** стрим шагов, cost / cache / trace-ссылка, 👍/👎, version selector | ручной сценарий A6 / A7 |
 | 10 | **Version store + `harness report`** (`metrics.json` из БД, `diff.patch`, bind-mount `./versions`; rejected-версии тоже в git) | `report` печатает таблицу с v000; `diff.patch` генерируется |
-| 11 | **Improver: analyze → propose → curate → leakcheck** (reflector — Pi-сессия через Tracer; content XOR routing; allow-list; v000 переводится на `playbook.json`) | валидный Proposal на провалах v000; curator-тесты (без LLM): ops по rule_id, merge, дедуп, `over_limit` (41-е правило), `growth_under_pressure` (родитель 32 правила, +1 → reject; merge 2→1 → pass), рендер детерминирован; отклонённый кандидат сохранён версией с diff / причиной / `reflect_cost_usd`, `val = null`; leak-тесты: gold-литерал → reject + `[REDACTED]` в diff, `GlobalCard`/`Not Applicable` в правиле → pass, путь `tasks/` → reject; reflect-трейс виден в Langfuse |
+| 11 | **Improver: analyze → propose → curate → leakcheck** (reflector — Pi-сессия через Tracer; content XOR routing; allow-list; v000 переводится на `playbook.json`) | валидный Proposal на провалах v000; curator-тесты (без LLM): ops по rule_id, merge, дедуп, `over_limit` (41-е правило), `growth_under_pressure` (родитель 32 правила, +1 → reject; merge 2→1 → pass), рендер детерминирован; отклонённый кандидат сохранён версией с diff / причиной / `reflect_cost_usd`, `val = null`; leak-тесты: gold-литерал → reject + `[REDACTED]` в diff, `GlobalCard`/`Not Applicable` в правиле → pass, путь `tasks/` → reject; skill с dict-литералом из 11 пар `'merchant': число` → reject, из 10 → pass, вычисляющий SQL-шаблон → pass; промпт reflector'а содержит запрет хардкода; reflect-трейс виден в Langfuse |
 | 12 | **Improver: smoke → validate → gate → promote/reject** (T из шага 9, confirmed_wins, cost-guard ×1.3) | 1 поколение end-to-end, `GateDecision` записан в metrics |
 | 13 | **Прогон improve (фон, бюджет ≤ $60)**, пока идут шаги 16–18 | ≥ 2 `promoted` |
 | 16 | **UI Improvements:** таблица версий, дифф, кнопка «improve» с бюджетом, promote/rollback | запуск improve из UI виден в прогрессе |
@@ -419,6 +423,7 @@ zimran-task/
 | **Curator детерминированный** (ACE-style: reflector предлагает дельты, curator применяет), лимит 40 правил / 3000 токенов; без LLM-консолидации как отдельного кандидата | README §2.2: промоушен только при росте val — «чистка» без прироста не может стать версией-победителем; давление ≥ 80% заставляет reflector сокращать через merge/remove внутри обычного гейта | при упоре в лимит прирост даётся тяжелее (нужно и сократить, и улучшить); оценка токенов `chars/4` грубая |
 | **Каждый Proposal = версия**, в т. ч. отклонённый curator'ом / leak-check'ом (`val = null`, причина, `reflect_cost_usd`) | README §2.2 «keeps every version, its diff, its scores and its cost» | номера версий тратятся на мусорные кандидаты; больше файлов в `versions/` |
 | Отклонённые на leak-check хранятся с литералами, заменёнными на `[REDACTED:<check>]` | иначе сохранённый diff сам стал бы «хранением task-specific answers» (README §2.2) | diff такой версии не воспроизводит исходное предложение дословно |
+| **Предвычисленные факты о датасете не храним** (уточнено у организаторов): reflector обязан предлагать только вычисляющий код / правила «как считать», хардкод значений из данных запрещён промптом; leak-check отклоняет skill / правило с литеральной таблицей > 10 пар «имя → число» | граница overfitting: таблица значений из данных — скрытое хранение ответов, даже если формально это «факт о данных»; на holdout с другими вопросами она не обобщается | агент каждый раз пересчитывает (больше токенов и tool-вызовов); порог 10 пар — эвристика, мелкие справочники (например, маппинг capture_delay) проходят |
 | Reflector не видит значений gold-ответов, только верно/неверно (+ направление для чисел) | снижает риск зашивания ответов | ему сложнее найти причину ошибки |
 | Гейт: `confirmed_wins − losses ≥ T` (T из шума двух прогонов v000) ∧ 0 регрессий easy ∧ cost ≤ 1.3× родителя | 91 задача → 1 задача = 1.1 п.п.; прирост нельзя «купить» дорогой моделью | часть реальных улучшений будет отклонена; повторы flipped-задач и второй baseline стоят денег |
 | Proposal = content XOR routing; routing только `{model, thinking}` | прирост атрибутируется одному типу изменения | больше поколений на комбинированные улучшения |
