@@ -148,6 +148,13 @@ per version; cache hit rates per run; $/task per version._
   a live run of the same process; recovery now runs once per process.
 - **Own mistake:** a val run was restarted by hand on a misread status (+$3.64).
 - **The literal-table leak rule also fires on code** (v014): `name = number` assignments in helper code count as pairs. It should ignore code blocks and count only dict / table literals. Same class of error as the unknown_column false positive (v007).
+- **Post-hoc analysis of the v013 rejection (no rule change, no promotion).** The single easy regression is
+  a task that is unstable in every version: v000 1/0/1, v012 1/0/1, v013 1/0/0 — the majority vote flipped on
+  one run (2/3 → 1/3). v013's strength: 6 majority wins, 3 of them 3/3 vs 0/3; 3 losses (two hard tasks
+  3/3 → 1/3 and this easy task). The no-easy-regression rule, as defined on a majority of 3 runs, reacts to
+  one-run noise. We did not promote v013 by relaxing the rule after seeing the result. The honest next step:
+  fix a revised rule before a run (e.g. an easy regression counts only if the task drops by ≥ 2 of 3 runs)
+  and gate a fee-skill candidate with it — ~20 min and ~$13, which did not fit before the deadline.
 - **Two promotions not reached.** 13 candidates in ~2 h: 5 lost to reflector/parse bugs and false pre-filters (fixed during the run), 3 rejected at SMOKE, 1 interrupted, 1 promoted, 1 (v013) rejected at the gate on the easy-regression rule. Most time and money went into finding and fixing harness bugs rather than into validated candidates.
 
 ## 9. Holdout
