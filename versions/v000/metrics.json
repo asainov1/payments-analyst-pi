@@ -22,5 +22,9 @@
   "cost_per_task_usd": 0.03948861062271062,
   "cache_hit_rate": 0.9400576705234058,
   "latency_p50_s": 9.028,
-  "latency_p95_s": 180.011
+  "latency_p95_s": 180.011,
+  "analyze_run_ids": [
+    "1fa473f0-a820-4215-8d3c-fa9452ad7fbc",
+    "0c2cfa5d-a525-4893-a0d5-41ce18b8759a"
+  ]
 }

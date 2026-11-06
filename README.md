@@ -108,6 +108,22 @@ scripts/clean-clone-test.sh   # clone → compose up → health + one solve, on 
 _Filled in at the end from `harness report --md` (see REPORT.md)._
 
 <!-- versions:start -->
+| version | status | parent | model | val (mean) | acc | easy | hard | runs | $/task | cache hit | p50/p95 s | reflect $ | what changed / why rejected |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| v000 | baseline | - | claude-sonnet-5-5 | 67/91 | 73.6% | 97.0% | 70.4% | 67 / 67 / 67 | 0.0395 | 94.0% | 9.0 / 180.0 | - | Hand-written baseline: instructions + domain primer, full manual, data schema, empty playbook. |
+| v001 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.227 | Both failures are fee-delta questions where the agent matched the rule's criteria correctly but charged the fee on every matching payment, including refused one |
+| v002 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.420 | reflector returned no valid proposal — invalid_proposal: SyntaxError: Unexpected end of JSON input |
+| v003 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.416 | reflector returned no valid proposal — invalid_proposal: SyntaxError: Unexpected end of JSON input |
+| v004 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.198 | reflector returned no valid proposal — invalid_proposal: SyntaxError: Unexpected token '\', "\nexec(ope"... is not valid JSON; retry: SyntaxError: Unexpected to |
+| v005 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.143 | This fixes fraud-ranking questions where the agent ranks groups by raw fraud counts or absolute fraud EUR instead of by fraud rate. Questions like 'top country  |
+| v006 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.384 | reflector returned no valid proposal — invalid_proposal: SyntaxError: Unexpected token 'p', "python\nim"... is not valid JSON; retry: SyntaxError: Unexpected to |
+| v007 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.256 | Fee-rule questions (applicable fee IDs, fee deltas, fees paid) are the most expensive class. The agent rewrites fee matching from scratch every time and loses m |
+| v008 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.141 | The biggest loss on validation is timeouts. On average 12.7 of 91 turns per run hit the 180 s cap and ended with no answer, and p95 sits exactly at the cap. The |
+| v009 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.149 | The largest measurable loss on validation is turns that hit the time cap. On average 12.7 of 91 turns per run reached the 180 s limit and ended with no answer a |
+| v010 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.259 | The biggest losses are fee-rule questions: fee deltas and applicable fee IDs. The agent hand-writes matching logic each time. In delta questions it applies only |
+| v011 | rejected | v000 | claude-sonnet-5-5 | - | - | - | - | - | - | - | - | 0.222 | Fee-rule questions (rate-change deltas and applicable fee IDs) make up most failures and most slow turns. In the delta questions the agent hand-writes partial m |
+| v012 ★ | promoted | v000 | claude-sonnet-5-5 | 71/91 | 78.0% | 97.0% | 75.4% | 72 / 70 / 71 | 0.0487 | 94.0% | 9.0 / 260.0 | 0.161 | The largest measured loss is turns that hit the time cap, not any single numeric-error pattern. On validation, an average of 12.7 of 91 turns per run reached th |
+| v013 | rejected | v012 | claude-sonnet-5-5 | 76.33/91 | 83.9% | 93.9% | 82.5% | 77 / 79 / 73 | 0.0360 | 95.4% | 22.4 / 260.0 | 0.178 | Most failures (9 of 12) are fee-delta questions, where the agent built one hand-written SQL filter from the `fees` table row. The errors go both high and low, w |
 <!-- versions:end -->
 
 ## Key design decisions

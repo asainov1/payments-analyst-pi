@@ -1,0 +1,21 @@
+{
+  "id": "v009",
+  "parent": "v000",
+  "created_at": "2026-11-06T10:36:26.812Z",
+  "status": "rejected",
+  "change_summary": "The largest measurable loss on validation is turns that hit the time cap. On average 12.7 of 91 turns per run reached the 180 s limit and ended with no answer at all, and p95 wall time sits exactly at the cap. The slow trajectories show why",
+  "models": {
+    "analyst": "claude-sonnet-5-5",
+    "reflector": "claude-sonnet-5-5"
+  },
+  "thinking": "off",
+  "limits": {
+    "max_tool_calls": 25,
+    "max_turn_usd": 0.5,
+    "max_turn_s": 300,
+    "max_task_usd": 1,
+    "max_output_tokens": 8192
+  },
+  "tool_descriptions": {},
+  "reject_stage": "interrupted"
+}

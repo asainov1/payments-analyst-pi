@@ -1,0 +1,21 @@
+{
+  "id": "v010",
+  "parent": "v000",
+  "created_at": "2026-11-06T10:39:39.325Z",
+  "status": "rejected",
+  "change_summary": "The biggest losses are fee-rule questions: fee deltas and applicable fee IDs. The agent hand-writes matching logic each time. In delta questions it applies only the transaction-level filters ad hoc and does not check the monthly volume and ",
+  "models": {
+    "analyst": "claude-sonnet-5-5",
+    "reflector": "claude-sonnet-5-5"
+  },
+  "thinking": "off",
+  "limits": {
+    "max_tool_calls": 25,
+    "max_turn_usd": 0.5,
+    "max_turn_s": 180,
+    "max_task_usd": 1,
+    "max_output_tokens": 8192
+  },
+  "tool_descriptions": {},
+  "reject_stage": "smoke"
+}

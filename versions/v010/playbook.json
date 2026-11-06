@@ -1,0 +1,11 @@
+{
+  "next_id": 2,
+  "rules": [
+    {
+      "id": "R001",
+      "text": "For fee-rule questions (applicable fee IDs, rate-change deltas, which payments a fee covers), load and call the fee_engine skill in a single python call instead of hand-writing matching logic. Every python call is a fresh process, so re-import everything in each call.",
+      "added_in": "v010",
+      "updated_in": "v010"
+    }
+  ]
+}

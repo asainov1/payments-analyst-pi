@@ -1,0 +1,12 @@
+{
+  "val": null,
+  "reflect_cost_usd": 0.1491094,
+  "curation": {
+    "applied": 1,
+    "skipped_duplicates": [],
+    "rules_before": 0,
+    "rules_after": 0,
+    "tokens_after": 7
+  },
+  "reject_reason": "interrupted: the improve run stopped before this candidate was gated"
+}
