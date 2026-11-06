@@ -9,10 +9,15 @@ export type VersionRow = {
   id: string; parent: string | null; status: string; change_summary: string; created_at?: string;
   models?: { analyst: string; reflector: string }; thinking?: string;
   metrics?: {
-    val: { correct: number; n: number; accuracy: number; by_level?: Record<string, number> } | null;
+    val: { correct: number; n: number; accuracy: number; by_level?: Record<string, number>; runs?: number[] } | null;
     cost_usd?: number; cost_per_task_usd?: number; cache_hit_rate?: number;
     latency_p50_s?: number; latency_p95_s?: number;
-    gate?: { decision: string; reason: string; confirmed_wins?: number; losses?: number; threshold_T?: number };
+    gate?: {
+      decision: string; reason: string; parent_correct?: number; cand_correct?: number; wins?: number; losses?: number;
+      confirmed_wins?: number; easy_regressions?: number; threshold_T?: number; parent_cost_per_task?: number; cand_cost_per_task?: number;
+    };
+    /** Set when a candidate is rejected before or instead of a full gate (smoke, leak-check, early stop). */
+    reject_reason?: string;
   };
 };
 

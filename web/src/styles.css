@@ -45,6 +45,6 @@ pre { background: var(--soft); padding: 8px; border-radius: 6px; overflow-x: aut
 .actions { white-space: nowrap; }
 .actions button { margin-right: 4px; }
 .tag { margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 10px; background: var(--accent); color: #fff; }
-.status.promoted { color: var(--ok); } .status.rejected { color: var(--bad); }
+.status.promoted { color: var(--ok); } .status.rejected { color: var(--bad); } .status.candidate { color: var(--accent); }
 .diff .add { color: var(--ok); } .diff .del { color: var(--bad); }
 .diff { display: block; width: 100%; }
