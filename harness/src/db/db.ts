@@ -67,6 +67,14 @@ const MIGRATIONS: string[] = [
      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
      UNIQUE (session_id, idx)
    );`,
+  `CREATE TABLE feedback (
+     id TEXT PRIMARY KEY,
+     turn_id TEXT NOT NULL REFERENCES turns(id),
+     rating TEXT NOT NULL CHECK (rating IN ('up','down')),
+     comment TEXT,
+     consumed_by TEXT,
+     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+   );`,
 ];
 
 export type Db = DatabaseSync;

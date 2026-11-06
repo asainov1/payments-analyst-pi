@@ -7,6 +7,7 @@ import { buildServer } from "../api/server.ts";
 import { ChatService } from "../chat/service.ts";
 import { BatchRunner } from "../runs/batch.ts";
 import { createRuntime } from "../runtime/app.ts";
+import { VersionsService } from "../versions/service.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
@@ -17,7 +18,14 @@ async function main(): Promise<void> {
   mkdirSync(ioDir, { recursive: true });
   const runner = new BatchRunner({ db: app.db, solver: app.solver(), concurrency: Number(env.BATCH_CONCURRENCY ?? 6), ioDir, repoRoot: ROOT, warmup: true });
   const chat = new ChatService({ db: app.db, repoRoot: ROOT, factory: app.chatFactory, baseTools: app.chatTools, onUsage: app.onUsage, tracing: app.tracing });
-  const server = buildServer({ runner, chat });
+  const server = buildServer({
+    runner,
+    chat,
+    versions: new VersionsService(ROOT),
+    ledger: app.ledger,
+    db: app.db,
+    webDist: env.WEB_DIST ?? join(ROOT, "web", "dist"),
+  });
   const url = await server.listen({ port: Number(env.PORT ?? 8080), host: env.HOST ?? "127.0.0.1" });
   console.log(`harness listening on ${url} (state ${app.stateDir}, tracing ${app.tracing ? "on" : "off"}, python ${app.pythonUrl ?? "off"})`);
   const shutdown = async () => {
