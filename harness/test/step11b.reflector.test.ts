@@ -45,3 +45,18 @@ describe("parseProposal", () => {
     expect(() => parseProposal("no json here")).toThrow();
   });
 });
+
+describe("schema in the reflector prompt", () => {
+  test("exact column names are given (the dataset renames columns of the public original)", async () => {
+    const { openDataDb } = await import("../src/data/db.ts");
+    const db = await openDataDb(join(ROOT, "bundle", "data"));
+    try {
+      const p = buildReflectorPrompt({ parent, failures: [], slow: [], feedback: [], rejected: [], schema: await db.schema() });
+      expect(p).toContain("use ONLY these exact table and column names");
+      expect(p).toContain("is_refused_by_psp");
+      expect(p).not.toContain("is_refused_by_adyen");
+    } finally {
+      db.close();
+    }
+  });
+});

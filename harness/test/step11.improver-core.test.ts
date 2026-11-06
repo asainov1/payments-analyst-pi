@@ -7,7 +7,7 @@ import { curate, LIMITS, type Proposal } from "../src/improver/curator.ts";
 import { gateDecision, thresholdT } from "../src/improver/gate.ts";
 import { buildLeakContext, leakCheck } from "../src/improver/leakcheck.ts";
 import { emptyPlaybook, type Playbook, renderPlaybook } from "../src/improver/playbook.ts";
-import { createVersion, readVersion, type VersionContent } from "../src/improver/store.ts";
+import { createVersion, nextVersionId, readVersion, type VersionContent } from "../src/improver/store.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -156,17 +156,18 @@ describe("version store", () => {
     expect(parent.playbook.rules).toEqual([]);
     const r = curate(parent, { kind: "content", rationale: "why", ops: [{ op: "playbook_add", text: "Fraud level is fraudulent EUR volume over total EUR volume." }, { op: "skill_upsert", name: "fees", skill_md: "# fees", files: { "fees.py": "x = 1\n" } }] }, "v001");
     if (!r.ok) throw new Error(r.reason);
+    const expected = nextVersionId(repo);
     const id = createVersion(repo, { parent: "v000", content: r.content, status: "candidate", change_summary: "add fraud rule + fees skill", curation: r.curation, reflectCostUsd: 0.05 });
-    expect(id).toBe("v001");
-    const back = readVersion(repo, "v001");
+    expect(id).toBe(expected);
+    const back = readVersion(repo, id);
     expect(back.playbook.rules[0].text).toMatch(/Fraud level/);
     expect(back.skills.fees["fees.py"]).toBe("x = 1\n");
-    expect(back.manifest).toMatchObject({ id: "v001", parent: "v000", status: "candidate" });
-    const diff = readFileSync(join(repo, "versions", "v001", "diff.patch"), "utf8");
+    expect(back.manifest).toMatchObject({ id, parent: "v000", status: "candidate" });
+    const diff = readFileSync(join(repo, "versions", id, "diff.patch"), "utf8");
     expect(diff).toContain("+- [R001] Fraud level");
     expect(diff).toContain("skills/fees/fees.py");
-    const metrics = JSON.parse(readFileSync(join(repo, "versions", "v001", "metrics.json"), "utf8"));
+    const metrics = JSON.parse(readFileSync(join(repo, "versions", id, "metrics.json"), "utf8"));
     expect(metrics).toMatchObject({ val: null, reflect_cost_usd: 0.05 });
-    expect(createVersion(repo, { parent: "v000", content: r.content, status: "rejected", change_summary: "x", reflectCostUsd: 0, rejectStage: "leakcheck", rejectReason: "leak: gold" })).toBe("v002");
+    expect(createVersion(repo, { parent: "v000", content: r.content, status: "rejected", change_summary: "x", reflectCostUsd: 0, rejectStage: "leakcheck", rejectReason: "leak: gold" })).toBe(nextVersionId(repo).replace(/\d+$/, (n) => String(Number(n) - 1).padStart(3, "0")));
   });
 });

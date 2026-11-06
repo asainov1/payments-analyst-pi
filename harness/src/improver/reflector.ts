@@ -80,6 +80,8 @@ export function buildReflectorPrompt(o: {
   rejected: Array<{ id: string; summary: string; reason: string }>;
   /** gold-independent runtime telemetry of the current version (no correctness, no task ids) */
   telemetry?: { val: Telemetry; train: Telemetry };
+  /** exact table / column names — the dataset renames columns of the public original */
+  schema?: string;
 }): string {
   const tel = (name: string, t: Telemetry) =>
     `- ${name}: on average ${t.limit_hits_per_run} of ${t.tasks_per_run} turns per run hit the max_turn_s limit (${o.parent.manifest.limits.max_turn_s} s), ${t.over_60s_per_run} ran longer than 60 s, p95 ${t.p95_s} s (${t.runs} run(s))`;
@@ -91,6 +93,7 @@ export function buildReflectorPrompt(o: {
     `## Current instructions (system.md)\n${o.parent.system}`,
     `## Current ${renderPlaybook(o.parent.playbook).replace(/^## /, "")}\n(${o.parent.playbook.rules.length}/${LIMITS.maxRules} rules)`,
     `## Current skills\n${skills || "(none)"}`,
+    o.schema ? `## Data schema — use ONLY these exact table and column names\n${o.schema}` : "",
     `## Current routing\nmodel ${o.parent.manifest.models.analyst}, thinking ${o.parent.manifest.thinking}, max_turn_s ${o.parent.manifest.limits.max_turn_s}`,
     o.telemetry
       ? `## Runtime telemetry of the current version (wall time only)\n${tel("validation set", o.telemetry.val)}\n${tel("train sample", o.telemetry.train)}\nTurns that hit the limit end without an answer. Consider routing (max_turn_s within 120..300; cost per task must stay ≤ 1.3× the parent's) or rules that make the agent reach an answer with fewer, cheaper steps.`

@@ -188,7 +188,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
     // Missing runs go in parallel: the long tail of slow tasks overlaps; the shared governor keeps RPM.
     const missing = Array.from({ length: Math.max(0, K - ids.length) }, (_, i) => ids.length + i + 1);
     if (missing.length) progress("validate", { version, runs: missing });
-    const done = await Promise.all(missing.map((n) => solve(`${o.improveRunId}-${version}-val-${n}`, val, version)));
+    const done = await Promise.all(missing.map((n) => solve(`${version}-val-${n}`, val, version)));
     ids.push(...done.map((r) => r.id));
     materializeValMetrics(app, version, ids, levels);
     return ids;
@@ -225,24 +225,26 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
     }
     const tag = `${o.improveRunId}-g${gen}`;
     try {
-      // ANALYZE — domain-based priority: hard fee tasks of all formats first, then the rest.
+      // ANALYZE — the whole improve split once per parent (+ a 2nd run of its hard part to find
+      // unstable tasks), cached in the parent's metrics.json until the next promotion.
       progress("analyze", { gen, parent });
-      // seed from the next version number: a restarted run does not redraw the same sample
-      const rand = mulberry32(1000 + Number(nextVersionId(repo).slice(1)));
-      const shuffled = [...pool].sort(() => rand() - 0.5);
-      const fee = shuffled.filter((t) => t.level === "hard" && /fee/i.test(t.question));
-      const rest = shuffled.filter((t) => !fee.includes(t));
-      const sample = [...fee.slice(0, 30), ...rest.slice(0, (o.analyzeSize ?? 40) - Math.min(30, fee.length))];
-      const ar = await solve(`${tag}-analyze`, sample, parent);
-      const rows = app.db.prepare("SELECT task_id, correct, answer, ms, trace_json FROM run_tasks WHERE run_id = ?").all(ar.id) as Array<{
-        task_id: string;
-        correct: number;
-        answer: string;
-        ms: number;
-        trace_json: string | null;
-      }>;
-      const byId = new Map(sample.map((t) => [t.task_id, t]));
-      const traj = (r: (typeof rows)[number], verdict: Trajectory["verdict"]): Trajectory => {
+      const pmA = JSON.parse(readFileSync(join(repo, "versions", parent, "metrics.json"), "utf8")) as { analyze_run_ids?: string[] };
+      let analyzeIds = pmA.analyze_run_ids ?? [];
+      if (analyzeIds.length < 2) {
+        const [full, hard2] = await Promise.all([
+          solve(`${tag}-analyze-full`, pool, parent),
+          solve(`${tag}-analyze-hard2`, pool.filter((t) => t.level === "hard"), parent),
+        ]);
+        analyzeIds = [full.id, hard2.id];
+        updateMetrics(repo, parent, { analyze_run_ids: analyzeIds });
+      }
+      const ar = { id: analyzeIds[0] };
+      type Row = { task_id: string; correct: number; answer: string; ms: number; trace_json: string | null };
+      const q = app.db.prepare("SELECT task_id, correct, answer, ms, trace_json FROM run_tasks WHERE run_id = ?");
+      const rows = q.all(analyzeIds[0]) as Row[];
+      const rows2 = new Map((q.all(analyzeIds[1]) as Row[]).map((r) => [r.task_id, r]));
+      const byId = new Map(pool.map((t) => [t.task_id, t]));
+      const traj = (r: Row, verdict: Trajectory["verdict"], note?: string): Trajectory => {
         const t = byId.get(r.task_id) as Task;
         const a = Number(r.answer);
         const g = Number(t.answer);
@@ -254,10 +256,32 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
                 ? "too high"
                 : "too low"
             : undefined;
-        return { level: t.level, question: t.question, guidelines: t.guidelines, answer: r.answer, verdict, hint, ms: r.ms, steps: r.trace_json ? JSON.parse(r.trace_json).steps : [] };
+        return { level: t.level, question: t.question, guidelines: t.guidelines, answer: r.answer, verdict, hint: [hint, note].filter(Boolean).join("; ") || undefined, ms: r.ms, steps: r.trace_json ? JSON.parse(r.trace_json).steps : [] };
       };
-      const failures = rows.filter((r) => r.correct !== 1).map((r) => traj(r, "wrong"));
+      // Unstable: the two runs disagree. Show the failing trajectory, plus only the tool sequence of
+      // the successful one (no outputs, no final answer → no gold value reaches the reflector).
+      const unstable: Trajectory[] = [];
+      for (const r of rows) {
+        const r2 = rows2.get(r.task_id);
+        if (!r2 || (r.correct === 1) === (r2.correct === 1)) continue;
+        const [bad, good] = r.correct === 1 ? [r2, r] : [r, r2];
+        const goodTools = good.trace_json
+          ? (JSON.parse(good.trace_json).steps as Array<{ tool?: string; args?: string }>)
+              .filter((s) => s.tool && s.tool !== "submit_answer")
+              .map((s) => `${s.tool}(${s.args})`)
+              .join(" → ")
+          : "";
+        unstable.push(traj(bad, "wrong", `UNSTABLE: another run of the same version got it right using: ${goodTools.slice(0, 900)}`));
+      }
+      const unstableIds = new Set(unstable.map((u) => u.question));
+      const failures = [
+        ...unstable,
+        ...[...rows, ...[...rows2.values()].filter((r) => !rows.some((x) => x.task_id === r.task_id))]
+          .filter((r) => r.correct !== 1 && !unstableIds.has(byId.get(r.task_id)?.question ?? ""))
+          .map((r) => traj(r, "wrong")),
+      ];
       const slow = rows.filter((r) => r.correct === 1 && r.ms > 60_000).map((r) => traj(r, "correct_but_slow"));
+      progress("analyze_done", { gen, tasks: rows.length, failures: failures.length, unstable: unstable.length, slow: slow.length });
       const feedback = app.db
         .prepare("SELECT t.user_message AS question, t.answer, f.comment FROM feedback f JOIN turns t ON t.id = f.turn_id WHERE f.rating = 'down' AND f.consumed_by IS NULL")
         .all() as Array<{ question: string; answer: string; comment: string | null }>;
@@ -278,10 +302,11 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
         improveRunId: o.improveRunId,
         prompt: buildReflectorPrompt({
           parent: parentContent,
-          failures: failures.slice(0, 10),
+          failures: failures.slice(0, 12),
           slow: slow.slice(0, 4),
           feedback,
           rejected: rejectedMem,
+          schema: await app.data.schema(),
           telemetry: {
             val: runtimeTelemetry(app.db, await parentReady, parentContent.manifest.limits.max_turn_s),
             train: runtimeTelemetry(app.db, [ar.id], parentContent.manifest.limits.max_turn_s),
@@ -336,13 +361,22 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
 
       // SMOKE — failures ∪ up to 15 passed tasks of the analyze sample
       progress("smoke", { gen, version: cand });
-      const passed = rows.filter((r) => r.correct === 1).slice(0, 15);
-      const smokeTasks = [...rows.filter((r) => r.correct !== 1), ...passed].map((r) => byId.get(r.task_id) as Task);
+      // problem = wrong in at least one analyze run; passed = right in both (15, deterministic draw)
+      const isProblem = (r: Row) => r.correct !== 1 || rows2.get(r.task_id)?.correct === 0;
+      const problem = rows.filter(isProblem);
+      const rand = mulberry32(1000 + Number(cand.slice(1)));
+      const passed = rows
+        .filter((r) => !isProblem(r))
+        .map((r) => ({ r, k: rand() }))
+        .sort((x, y) => x.k - y.k)
+        .slice(0, 15)
+        .map((x) => x.r);
+      const smokeTasks = [...problem, ...passed].map((r) => byId.get(r.task_id) as Task);
       const sr = await solve(`${tag}-smoke`, smokeTasks, cand);
       const sm = correctMap(app.db, sr.id);
-      const fixed = rows.filter((r) => r.correct !== 1 && sm.get(r.task_id)).length;
+      const fixed = problem.filter((r) => sm.get(r.task_id)).length;
       const broken = passed.filter((r) => !sm.get(r.task_id)).length;
-      const need = failures.length >= 4 ? 2 : 1;
+      const need = problem.length >= 4 ? 2 : 1;
       updateMetrics(repo, cand, { smoke: { fixed, broken, need, run_id: sr.id } });
       if (fixed - broken < need) {
         updateManifest(repo, cand, { status: "rejected", reject_stage: "smoke" });
@@ -365,7 +399,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       }
       const parentMean = parentIds.reduce((s, id) => s + [...correctMap(app.db, id).values()].filter(Boolean).length, 0) / parentIds.length;
       progress("validate", { version: cand, run: 1 });
-      const first = await solve(`${o.improveRunId}-${cand}-val-1`, val, cand);
+      const first = await solve(`${cand}-val-1`, val, cand);
       const firstCorrect = [...correctMap(app.db, first.id).values()].filter(Boolean).length;
       updateMetrics(repo, cand, { val_run_ids: [first.id] });
       if (earlyStop(firstCorrect, parentMean, T)) {
@@ -410,6 +444,8 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       throw e;
     }
   }
+  // Never leave the parent's background val run behind: it is needed by the next run anyway.
+  await parentReady.catch((e) => progress("parent_val_failed", { message: String(e) }));
   return { promoted, rejected, spent_usd: app.ledger.spentUsd() - startSpent };
 }
 

@@ -56,6 +56,8 @@ export interface BatchRunnerOptions {
   warmup?: boolean;
 }
 
+const recovered = new WeakSet<Db>();
+
 export class BatchRunner {
   private readonly o: Required<BatchRunnerOptions>;
   private readonly active = new Map<string, Promise<void>>();
@@ -63,8 +65,13 @@ export class BatchRunner {
   constructor(opts: BatchRunnerOptions) {
     this.o = { maxAttempts: 2, warmup: false, ...opts };
     // Crash recovery: whatever was in flight when the previous process died is pending again.
-    this.o.db.exec("UPDATE run_tasks SET status = 'pending' WHERE status = 'running'");
-    this.o.db.exec("UPDATE runs SET status = 'queued' WHERE status = 'running'");
+    // Once per process and database — later runners (e.g. the improver's next run) must not
+    // re-queue runs that are live in this process.
+    if (!recovered.has(this.o.db)) {
+      recovered.add(this.o.db);
+      this.o.db.exec("UPDATE run_tasks SET status = 'pending' WHERE status = 'running'");
+      this.o.db.exec("UPDATE runs SET status = 'queued' WHERE status = 'running'");
+    }
   }
 
   async startSolve(req: { tasksFile: string; version: string; out: string }): Promise<string> {

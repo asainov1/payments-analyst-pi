@@ -173,3 +173,23 @@ describe("splits", () => {
     expect(JSON.stringify(a)).not.toMatch(/answer|question/);
   });
 });
+
+describe("crash recovery runs once per process and database", () => {
+  test("a second BatchRunner on the same DB does not re-queue the first one's live run", async () => {
+    const e = env(4);
+    const db = openDb(e.dbPath);
+    let release: () => void = () => {};
+    const slow: Solver = () =>
+      new Promise((r) => {
+        release = () => r({ answer: "Not Applicable" });
+      });
+    const r1 = new BatchRunner({ db, solver: slow, concurrency: 1, ioDir: e.io, repoRoot: ROOT });
+    const id = await r1.startSolve({ tasksFile: e.tasksFile, version: "v000", out: e.out });
+    await new Promise((r) => setTimeout(r, 30));
+    new BatchRunner({ db, solver: naSolver, concurrency: 1, ioDir: e.io, repoRoot: ROOT }); // e.g. the improver's next run
+    const st = db.prepare("SELECT status FROM runs WHERE id = ?").get(id) as { status: string };
+    expect(st.status).toBe("running");
+    expect((db.prepare("SELECT COUNT(*) AS n FROM run_tasks WHERE run_id = ? AND status = 'running'").get(id) as { n: number }).n).toBe(1);
+    release();
+  });
+});
