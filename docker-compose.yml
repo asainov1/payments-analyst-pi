@@ -131,6 +131,49 @@ services:
       timeout: 3s
       retries: 10
 
+  # Model-written Python runs here: only the internal `sandbox` network (no egress), read-only
+  # root fs, uid 65534, memory/pids/cpu limits; sees bundle/data and versions/ read-only — never
+  # tasks/ or scorer/.
+  py-sandbox:
+    build: ./py-sandbox
+    image: zimran-task/py-sandbox:local
+    restart: unless-stopped
+    networks: [sandbox]
+    read_only: true
+    user: "65534:65534"
+    tmpfs:
+      - /work:size=256m,uid=65534,gid=65534
+      - /tmp:size=64m,uid=65534,gid=65534
+    volumes:
+      - ./bundle/data:/data:ro
+      - ./versions:/versions:ro
+    mem_limit: 1g
+    pids_limit: 128
+    cpus: 1
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Loopback-only port forward host → py-sandbox for harness processes running on the host.
+  # Runs no user code; the sandbox itself stays without egress.
+  sandbox-gateway:
+    image: docker.io/alpine/socat:1.8.1.1
+    restart: unless-stopped
+    command: TCP-LISTEN:7070,fork,reuseaddr TCP:py-sandbox:8000
+    networks: [sandbox, default]
+    ports:
+      - "127.0.0.1:${PY_SANDBOX_PORT:-7070}:7070"
+    depends_on:
+      py-sandbox: { condition: service_healthy }
+
+networks:
+  sandbox:
+    internal: true
+
 volumes:
   langfuse_postgres_data:
   langfuse_clickhouse_data:

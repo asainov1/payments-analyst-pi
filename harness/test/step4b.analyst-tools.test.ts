@@ -28,6 +28,11 @@ describe("analyst tools", () => {
     for (const t of tools) expect(t.description.length).toBeGreaterThan(20);
   });
 
+  test("python tool is added when a sandbox URL is configured", () => {
+    const tools = analystTools({ db, dataDir: DATA, slot: new AnswerSlot("x"), python: { url: "http://127.0.0.1:7070", session: "s", version: "v000" } });
+    expect(tools.map((t) => t.name).sort()).toEqual(["python", "read_manual", "sql", "submit_answer"]);
+  });
+
   test("sql returns a markdown table; rejected statements surface as tool errors", async () => {
     const tools = analystTools({ db, dataDir: DATA, slot: new AnswerSlot("x") });
     expect(text(await run(tools, "sql", { query: "SELECT count(*) AS n FROM payments" }))).toContain("138236");

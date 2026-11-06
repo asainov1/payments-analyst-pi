@@ -377,7 +377,7 @@ zimran-task/
 | 5 ✅ | **`validate` + `submit_answer`** | vitest: валидатор принимает **все** gold-ответы train+val в их guidelines (277/277, включая 3 пустых `''`) и отвергает 12 заведомо кривых. Факт: для «rounded to N decimals» gold иногда короче (`-10.48` при N=14) → правило «≤ N знаков» |
 | 6 ✅² | **Governor:** семафор, token bucket (RPM/TPM из шага 1, адаптивное снижение на 429), retry, ledger, per-turn и per-task лимиты | vitest с fake-LLM: 429 → ретрай; кап $0.01 → `budget_exhausted`; лимит tool_calls → `limit_exceeded`; per-task $ превышен → задача `error` |
 | 7 ✅³ | **Batch runner + `harness solve`** (CLI → API), `/io`-mount, resume, пропуск скоринга без `answer`, `config/splits.json` | `solve` на 10 train → скорер; A3 (restart посередине); файл без `answer` → `done` |
-| 8 | **`py-sandbox`** (internal network, ro, uid 65534, mem/pids limits) + tool `python` + `read_skill` | `python` считает то же, что `sql`, на 1 задаче; A14: `open(val.jsonl)` → `FileNotFoundError`, `urllib` / `subprocess curl` → ошибка сети |
+| 8 ✅⁶ | **`py-sandbox`** (internal network, ro, uid 65534, mem/pids limits) + tool `python` + `read_skill` | `python` считает то же, что `sql`, на 1 задаче; A14: `open(val.jsonl)` → `FileNotFoundError`, `urllib` / `subprocess curl` → ошибка сети |
 | 9 | **Baseline v000 (фон):** **прогрев кэша перед fan-out (з):** в каждом batch сначала 1 задача (пишет префикс), потом параллель — иначе N первых запросов платят запись 1.25×; выбор модели на 20 improve-train (Haiku vs Sonnet), затем **2× val**, improve-train, report-holdout. Метрики пишутся в БД (run-уровень); `metrics.json` материализуется в шаге 10 | в БД есть 4 run'а v000; посчитан порог `T` (§3.4) и $/task |
 | 14 | **API сессий + SSE**, multi-turn, `ask_user` | `curl -N` показывает поток событий; follow-up использует контекст |
 | 15 | **UI Chat (тонкий):** стрим шагов, cost / cache / trace-ссылка, 👍/👎, version selector | ручной сценарий A6 / A7 |
@@ -394,6 +394,8 @@ zimran-task/
 ² Governor готов как библиотека (`Governor.call`). Точка подключения к Pi (Pi сам делает HTTP-запросы) решается в шаге 2: хук Pi перед запросом или локальный governor-прокси между Pi и LiteLLM (бонус: точная стоимость из `x-litellm-response-cost`).
 
 ³ С fake-solver'ом; реальный агент подключается как `Solver` после шага 2. Сплит по факту: improve 148 / report-holdout 38 (`ceil(0.2·n)` по каждому уровню, seed 42). Относительные пути `--tasks` резолвятся от корня репо (`bundle/tasks/val.jsonl`).
+
+⁶ `npm run test:docker` (без LLM): pandas считает 138236 строк как `sql`; duckdb работает; обход всей ФС не находит `val.jsonl` / `train.jsonl` / `score.py`; urllib, raw socket, подпроцесс `python3 -I -S` и `litellm.zimran.net` — все без сети; uid 65534, root fs и `data/` read-only, workdir пишется; fork-бомба упирается в `pids_limit`, песочница жива. Unit-контракт инструмента — против того же `server.py`, запущенного локально.
 
 ⁵ Langfuse v4 поднялся с первой попытки, fallback не понадобился. Живой тест (Haiku, ≈ $0.002): задача 1014 → в Langfuse `agent`-корень, 3 `generation` (токены, cache read/write, cost, latency 0.9–2.6 с), `tool` `sql` и `submit_answer`; `sessionId` = run id, `version` на каждом наблюдении. Экспорт / импорт (`scripts/export-langfuse.sh`, `import-langfuse.sh`) проверен: архив поднят в чистом проекте `lfcheck`, тот же трейс читается целиком.
 
@@ -452,6 +454,8 @@ zimran-task/
 | Трейсинг через официальный SDK `@langfuse/tracing` + `@langfuse/otel` `6.0.2` (OTLP; старый `/api/public/ingestion` в v4 deprecated) на собственном `NodeTracerProvider` (не глобальный) | SDK сам шлёт `x-langfuse-ingestion-version: 4` → данные видны сразу | OTel зафиксирован на линии 2.x (`api 1.9.1`, `sdk-trace-* 2.12.0`, `exporter-trace-otlp-http 0.223.0`): exporter `0.301` требует `api ≥ 1.10` и `sdk-trace 3.x`, несовместимые с `core 2.x`, который нужен Langfuse SDK |
 | Стоимость в Langfuse — из Pi `usage.cost` (та же `config/prices.json`, совпадение с ledger прокси ±1% проверено вживую); генерация начинается в момент отправки запроса, `completionStartTime` — первый токен | трейс строится синхронно из событий Pi, без сопоставления с событиями прокси | ledger прокси остаётся источником истины для бюджета; у прерванных вызовов в трейсе нет оценочной стоимости |
 | Экспорт Langfuse = tar всех volume'ов (Postgres, ClickHouse, MinIO, Redis) при остановленном стеке | один формат, проверенный восстановлением в чистом проекте | на время экспорта Langfuse недоступен (минута) |
+| `py-sandbox`: python 3.12.14-slim, pandas 3.0.6, duckdb 1.5.6; exec-сервер на stdlib; код запускается `python3 -c` (без `-I`, чтобы `skills/` в cwd импортировались) | изоляция обеспечивается контейнером (internal network, read-only, uid 65534, limits, cap_drop ALL), а не флагами интерпретатора — их можно обойти подпроцессом | — |
+| `sandbox-gateway` (alpine/socat 1.8.1.1) публикует песочницу только на `127.0.0.1:7070` для harness, запущенного на хосте (baseline шага 9 идёт до контейнеризации harness) | песочница остаётся только в internal-сети; у шлюза есть egress, но он не исполняет пользовательский код | ещё один контейнер; когда harness переедет в compose, шлюз нужен только для запуска с хоста |
 
 ---
 

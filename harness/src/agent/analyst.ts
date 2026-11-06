@@ -25,6 +25,8 @@ export interface AnalystDeps {
   onUsage: (fn: (e: LlmUsageEvent) => void) => () => void;
   /** Smoke/experiments only: run a version with a different analyst model. */
   modelOverride?: string;
+  /** py-sandbox base URL; omitted → no python tool. */
+  pythonUrl?: string;
   /** Langfuse; null → no tracing (unit tests). */
   tracing?: Tracing | null;
 }
@@ -71,7 +73,12 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
       scope: "solve",
       model,
       systemPrompt: await systemPrompt(ctx.version),
-      tools: analystTools({ db: d.db, dataDir: d.dataDir, slot }),
+      tools: analystTools({
+        db: d.db,
+        dataDir: d.dataDir,
+        slot,
+        python: d.pythonUrl ? { url: d.pythonUrl, session: ref.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 128), version: ctx.version } : undefined,
+      }),
       compaction: false,
       cwd,
     });

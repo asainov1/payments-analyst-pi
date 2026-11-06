@@ -3,11 +3,20 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { Type } from "typebox";
 import type { DataDb } from "../data/db.ts";
 import { readManual } from "../data/manual.ts";
+import { pythonTool } from "./python-tool.ts";
 import type { AnswerSlot } from "./submit.ts";
 
 const textResult = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 
-export function analystTools(o: { db: DataDb; dataDir: string; slot: AnswerSlot }): ToolDefinition[] {
+export interface AnalystToolOptions {
+  db: DataDb;
+  dataDir: string;
+  slot: AnswerSlot;
+  /** py-sandbox; omitted → no python tool. */
+  python?: { url: string; session: string; version: string };
+}
+
+export function analystTools(o: AnalystToolOptions): ToolDefinition[] {
   const sql = defineTool({
     name: "sql",
     label: "SQL",
@@ -49,5 +58,5 @@ export function analystTools(o: { db: DataDb; dataDir: string; slot: AnswerSlot 
     },
   });
 
-  return [sql, manual, submit] as ToolDefinition[];
+  return [sql, manual, submit, ...(o.python ? [pythonTool(o.python)] : [])] as ToolDefinition[];
 }
