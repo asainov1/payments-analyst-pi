@@ -41,12 +41,13 @@ export interface AppRuntime {
   close(): Promise<void>;
 }
 
-export async function createRuntime(o: { repoRoot: string; stateDir?: string; env?: NodeJS.ProcessEnv }): Promise<AppRuntime> {
+/** sharedState: skip the state lock — only for a repair tool that never runs crash recovery (BatchRunner recover: false). */
+export async function createRuntime(o: { repoRoot: string; stateDir?: string; env?: NodeJS.ProcessEnv; sharedState?: boolean }): Promise<AppRuntime> {
   const env = o.env ?? process.env;
   const stateDir = o.stateDir ?? join(o.repoRoot, "state");
   mkdirSync(stateDir, { recursive: true });
   if (!env.LITELLM_BASE_URL || !env.LITELLM_API_KEY) throw new Error("LITELLM_BASE_URL / LITELLM_API_KEY are not set");
-  const releaseLock = acquireStateLock(stateDir);
+  const releaseLock = o.sharedState ? () => {} : acquireStateLock(stateDir);
 
   const db = openDb(join(stateDir, "harness.db"));
   const ledger = new BudgetLedger(db, { capUsd: Number(env.GLOBAL_BUDGET_USD ?? 135) });

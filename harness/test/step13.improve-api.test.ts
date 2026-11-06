@@ -1,6 +1,6 @@
 // `harness improve` / `harness report` through the API (SPEC §5): improve runs in the service,
 // progress over the run events SSE; report renders the versions table. Fake improve loop, no LLM.
-import { cpSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -73,7 +73,9 @@ describe("report", () => {
     app = buildServer({ versions: new VersionsService(repo) });
     const base = await app.listen({ port: 0, host: "127.0.0.1" });
     const md = renderReport((await (await fetch(`${base}/api/versions`)).json()) as never, "md");
-    expect(md).toContain("| v000 ★ |");
+    const best = readFileSync(join(repo, "versions", "BEST"), "utf8").trim();
+    expect(md).toContain(best === "v000" ? "| v000 ★ |" : "| v000 |");
+    expect(md).toContain(`| ${best} ★ |`);
     expect(md).toContain("40.5/91");
     expect(md).toContain("44.5%");
     expect(md).toContain("90.7%");

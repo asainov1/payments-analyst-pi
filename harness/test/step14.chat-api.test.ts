@@ -1,7 +1,7 @@
 // SPEC §6 step 14: chat sessions API + SSE (§4.1, §4.2), multi-turn, ask_user, busy/abort.
 // A fake Pi session stands in for the model; no LLM spend.
 import { EventEmitter } from "node:events";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -121,7 +121,7 @@ describe("sessions", () => {
   test("create → 201 with resolved version; unknown version → 422", async () => {
     const r = await post("/api/sessions", {});
     expect(r.status).toBe(201);
-    expect((await r.json()).version).toBe("v000");
+    expect((await r.json()).version).toBe(readFileSync(join(import.meta.dirname, "..", "..", "versions", "BEST"), "utf8").trim());
     expect((await post("/api/sessions", { version: "v999" })).status).toBe(422);
   });
 

@@ -54,6 +54,8 @@ export interface BatchRunnerOptions {
   maxAttempts?: number;
   /** Run the first task alone so it writes the prompt-cache prefix, then fan out (SPEC step 9, з). */
   warmup?: boolean;
+  /** false: never re-queue running tasks (a second process sharing the state DB with a live one). */
+  recover?: boolean;
 }
 
 const recovered = new WeakSet<Db>();
@@ -63,11 +65,11 @@ export class BatchRunner {
   private readonly active = new Map<string, Promise<void>>();
 
   constructor(opts: BatchRunnerOptions) {
-    this.o = { maxAttempts: 2, warmup: false, ...opts };
+    this.o = { maxAttempts: 2, warmup: false, recover: true, ...opts };
     // Crash recovery: whatever was in flight when the previous process died is pending again.
     // Once per process and database — later runners (e.g. the improver's next run) must not
     // re-queue runs that are live in this process.
-    if (!recovered.has(this.o.db)) {
+    if (this.o.recover && !recovered.has(this.o.db)) {
       recovered.add(this.o.db);
       this.o.db.exec("UPDATE run_tasks SET status = 'pending' WHERE status = 'running'");
       this.o.db.exec("UPDATE runs SET status = 'queued' WHERE status = 'running'");

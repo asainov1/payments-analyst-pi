@@ -130,7 +130,7 @@ describe("batch runner", () => {
     await expect(runner.startSolve({ tasksFile: join(e.io, "../io/../../etc/x"), version: "v000", out: e.out })).rejects.toThrow(/tasks_file/);
     await expect(runner.startSolve({ tasksFile: e.tasksFile, version: "v999", out: e.out })).rejects.toThrow(/version/);
     const id = await runner.startSolve({ tasksFile: "bundle/tasks/val.jsonl", version: "best", out: e.out });
-    expect(runner.get(id)?.run.version).toBe("v000"); // best → versions/BEST
+    expect(runner.get(id)?.run.version).toBe(readFileSync(join(ROOT, "versions", "BEST"), "utf8").trim()); // best → versions/BEST
   });
 });
 
