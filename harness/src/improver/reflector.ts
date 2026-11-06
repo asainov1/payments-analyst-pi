@@ -126,7 +126,8 @@ export async function runReflector(o: {
   improveRunId: string;
   prompt: string;
 }): Promise<{ proposal: Proposal | null; text: string; error?: string }> {
-  const model = resolveModelConfig(o.prices, { model: REFLECTOR_MODEL, thinking: "medium", limits: { max_output_tokens: 16000 } });
+  // low thinking + a large answer budget: proposals with skill code are long, and a cut-off JSON is useless
+  const model = resolveModelConfig(o.prices, { model: REFLECTOR_MODEL, thinking: "low", limits: { max_output_tokens: 32000 } });
   const session = await createPiSession(o.rt, { ref: o.ref, scope: "improve", model, systemPrompt: SYSTEM, tools: [], compaction: false, cwd: join(o.stateDir, "work") });
   const lf = o.tracing
     ? traceTurn(o.tracing, session, { name: "reflect", sessionId: o.improveRunId, version: "improver", tags: ["improve", "reflect"], metadata: { ref: o.ref }, input: o.prompt, model: model.model })
@@ -138,18 +139,29 @@ export async function runReflector(o: {
       if (t) text = t;
     }
   });
+  let proposal: Proposal | null = null;
+  let error: string | undefined;
   try {
     await session.prompt(o.prompt);
+    try {
+      proposal = parseProposal(text);
+    } catch (e) {
+      // one retry in the same session (prompt cache hit): the JSON was malformed or cut off
+      error = String(e);
+      await session.prompt(
+        "Your reply was not one complete JSON object (it may have been cut off). Reply again with ONLY the complete JSON proposal — rationale under 80 words, skill files short.",
+      );
+      try {
+        proposal = parseProposal(text);
+        error = undefined;
+      } catch (e2) {
+        error = `${error}; retry: ${String(e2)}`;
+      }
+    }
   } finally {
     unsub();
     session.dispose();
   }
-  try {
-    const proposal = parseProposal(text);
-    lf?.end({ proposal });
-    return { proposal, text };
-  } catch (e) {
-    lf?.end({ error: String(e), text: text.slice(0, 2000) });
-    return { proposal: null, text, error: String(e) };
-  }
+  lf?.end(proposal ? { proposal } : { error, text: text.slice(0, 20_000) });
+  return { proposal, text, error };
 }
