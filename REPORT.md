@@ -96,6 +96,7 @@ _Per generation, filled in at the end: proposal, stage reached, gate numbers, ti
 | stage 2 · 1 | v002 | (reflector reply cut off mid-JSON) | rejected at curator (invalid proposal) | — | 6 min | _…_ |
 | stage 2 · 3 (4th process) | **v012 promoted** | routing `max_turn_s` 180 → 260 (reflector, from the val timeout telemetry) | gate | **70.67 vs 67** (runs 72 / 69 / 71), +3.67 ≥ T=3, wins 4 / losses 0, no easy regressions, $/task 0.0487 vs 0.0395 (×1.23 ≤ 1.3) | ~18 min | ≈ $13 |
 | stage 2 · 4 (4th process) | v013 | playbook rule + `fee_matcher` skill (raw fees.json, per-month buckets) | **rejected at gate: 1 easy regression** | 76.33 vs 71.0 (runs 77 / 79 / 73), +5.33 ≥ T=3, wins 6 / losses 3, $/task 0.036 vs 0.049 — passes mean, T and cost, fails the pre-registered no-easy-regression rule | ~23 min | ≈ $13 |
+| last try (16:37, after freeze) | v014 | fee-matching skill from v012 | **rejected at leak-check** (literal table: 11 name→number pairs > 10) | — | ~1 min | $0.17 |
 
 **v012 promotion is conservative.** py-sandbox was restarted at ~15:59 while v012's val runs 2 and 3
 were in flight: 6 and 10 of their tasks hit sandbox connection errors (6 and 9 of those ended wrong);
