@@ -1,0 +1,5 @@
+{
+  "val": null,
+  "reflect_cost_usd": 0.4163644,
+  "reject_reason": "invalid_proposal: SyntaxError: Unexpected end of JSON input"
+}

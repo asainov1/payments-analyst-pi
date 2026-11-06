@@ -1,0 +1,10 @@
+--- a/manifest.json	
++++ b/manifest.json	
+@@ -11,5 +11,6 @@
+     "max_task_usd": 1,
+     "max_output_tokens": 8192
+   },
+-  "tool_descriptions": {}
++  "tool_descriptions": {},
++  "reject_stage": "curator"
+ }

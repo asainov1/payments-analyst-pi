@@ -62,3 +62,13 @@ describe("stage-2 pre-filter settings (agreed after stage 2)", () => {
     expect(countsAsReject("gate")).toBe(true);
   });
 });
+
+describe("routing candidates in SMOKE (v008 fix)", () => {
+  test("routing passes SMOKE with broken = 0 even when nothing is fixed; content still needs fixed − broken ≥ 1", async () => {
+    const { smokePasses } = await import("../src/improver/loop.ts");
+    expect(smokePasses({ kind: "routing", fixed: 0, broken: 0 })).toBe(true);
+    expect(smokePasses({ kind: "routing", fixed: 3, broken: 1 })).toBe(false);
+    expect(smokePasses({ kind: "content", fixed: 0, broken: 0 })).toBe(false);
+    expect(smokePasses({ kind: "content", fixed: 1, broken: 0 })).toBe(true);
+  });
+});

@@ -1,0 +1,9 @@
+--- a/playbook.md	
++++ b/playbook.md	
+@@ -1,3 +1,5 @@
+ ## Playbook
+ 
+-(no rules yet)
++Rules learned from earlier mistakes. Follow them unless the question clearly says otherwise.
++
++- [R001] When a question ranks or picks groups 'for fraud' (top/highest/worst fraud by country, merchant, scheme, segment, etc.), rank by fraud rate (EUR volume with has_fraudulent_dispute / total EUR volume of that group, all payments in the period), not by fraud counts or absolute fraud EUR. Use counts or amounts only when the question explicitly asks for them.

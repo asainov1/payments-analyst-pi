@@ -1,0 +1,11 @@
+{
+  "next_id": 2,
+  "rules": [
+    {
+      "id": "R001",
+      "text": "When a question ranks or picks groups 'for fraud' (top/highest/worst fraud by country, merchant, scheme, segment, etc.), rank by fraud rate (EUR volume with has_fraudulent_dispute / total EUR volume of that group, all payments in the period), not by fraud counts or absolute fraud EUR. Use counts or amounts only when the question explicitly asks for them.",
+      "added_in": "v005",
+      "updated_in": "v005"
+    }
+  ]
+}

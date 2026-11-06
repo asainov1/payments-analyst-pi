@@ -69,3 +69,15 @@ describe("review fixes before stage 2", () => {
     expect(frozenT(repo)).toEqual({ k: 3, T: 5, from_version: "v000" });
   });
 });
+
+describe("prefilter_bug versions are not negative memory", () => {
+  test("rejectedMemory skips reject_stage prefilter_bug", async () => {
+    const { rejectedMemory } = await import("../src/improver/loop.ts");
+    const repo = mkdtempSync(join(tmpdir(), "pb-"));
+    cpSync(join(ROOT, "versions", "v000"), join(repo, "versions", "v000"), { recursive: true });
+    cpSync(join(repo, "versions", "v000"), join(repo, "versions", "v001"), { recursive: true });
+    const mp = join(repo, "versions", "v001", "manifest.json");
+    writeFileSync(mp, JSON.stringify({ ...JSON.parse(readFileSync(mp, "utf8")), id: "v001", parent: "v000", status: "rejected", reject_stage: "prefilter_bug" }));
+    expect(rejectedMemory(repo, "v000")).toEqual([]);
+  });
+});

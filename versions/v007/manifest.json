@@ -1,0 +1,21 @@
+{
+  "id": "v007",
+  "parent": "v000",
+  "created_at": "2026-11-06T10:35:09.090Z",
+  "status": "rejected",
+  "change_summary": "Fee-rule questions (applicable fee IDs, fee deltas, fees paid) are the most expensive class. The agent rewrites fee matching from scratch every time and loses many turns to bugs: missing imports between python calls, '%' and 'k'/'m' parsing",
+  "models": {
+    "analyst": "claude-sonnet-5-5",
+    "reflector": "claude-sonnet-5-5"
+  },
+  "thinking": "off",
+  "limits": {
+    "max_tool_calls": 25,
+    "max_turn_usd": 0.5,
+    "max_turn_s": 180,
+    "max_task_usd": 1,
+    "max_output_tokens": 8192
+  },
+  "tool_descriptions": {},
+  "reject_stage": "prefilter_bug"
+}

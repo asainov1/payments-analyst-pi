@@ -28,3 +28,29 @@ export function unknownIdentifiers(text: string, allowed: Set<string>): string[]
   for (const m of text.matchAll(SNAKE)) if (!allowed.has(m[0])) out.add(m[0]);
   return [...out].sort();
 }
+
+const TABLES = "payments_m|payments|fees|merchants|mcc|acquirer_countries";
+
+/** Text whose snake_case tokens must be real identifiers (v007 fix): playbook rules / tool descriptions
+ *  in full (prose), but from SKILL.md only explicit column references — `table.column` and identifiers
+ *  inside SQL fragments (aliases after AS, function names before "(" and quoted literals excluded).
+ *  Local variables of helper code are not columns. */
+export function candidateColumnRefs(o: { rules: string[]; skillDocs: string[] }): string {
+  const out: string[] = [...o.rules];
+  for (const doc of o.skillDocs) {
+    for (const m of doc.matchAll(new RegExp(`\\b(?:${TABLES})\\.([a-z_][a-z0-9_]*)`, "g"))) out.push(m[1]);
+    for (const line of doc.split("\n")) {
+      const k = line.search(/\b(SELECT|WHERE|GROUP BY|ORDER BY|HAVING)\b/i);
+      if (k < 0) continue;
+      let seg = line.slice(k);
+      const q = seg.indexOf('"');
+      if (q >= 0) seg = seg.slice(0, q);
+      seg = seg
+        .replace(/'[^']*'/g, " ")
+        .replace(/\bAS\s+[a-z_][a-z0-9_]*/gi, " ")
+        .replace(/\b[a-z_][a-z0-9_]*\s*\(/gi, " ");
+      out.push(seg);
+    }
+  }
+  return out.join("\n");
+}

@@ -1,0 +1,21 @@
+{
+  "id": "v008",
+  "parent": "v000",
+  "created_at": "2026-11-06T10:35:32.308Z",
+  "status": "rejected",
+  "change_summary": "The biggest loss on validation is timeouts. On average 12.7 of 91 turns per run hit the 180 s cap and ended with no answer, and p95 sits exactly at the cap. The correct-but-slow fee-matching trajectories show why. Multi-step python work (lo",
+  "models": {
+    "analyst": "claude-sonnet-5-5",
+    "reflector": "claude-sonnet-5-5"
+  },
+  "thinking": "off",
+  "limits": {
+    "max_tool_calls": 25,
+    "max_turn_usd": 0.5,
+    "max_turn_s": 300,
+    "max_task_usd": 1,
+    "max_output_tokens": 8192
+  },
+  "tool_descriptions": {},
+  "reject_stage": "prefilter_bug"
+}

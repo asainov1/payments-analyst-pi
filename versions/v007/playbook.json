@@ -1,0 +1,11 @@
+{
+  "next_id": 2,
+  "rules": [
+    {
+      "id": "R001",
+      "text": "For applicable-fee-ID, fee-delta or fees-paid questions, call the fee_engine skill in a single python call instead of hand-writing the matching. It checks every fee field, including the monthly volume and fraud buckets. Submit right after sanity-checking its output.",
+      "added_in": "v007",
+      "updated_in": "v007"
+    }
+  ]
+}

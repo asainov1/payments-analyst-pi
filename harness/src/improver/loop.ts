@@ -14,7 +14,7 @@ import { earlyStop, gateDecision, pairFlips, thresholdT } from "./gate.ts";
 import { labelFailure } from "./labels.ts";
 import { buildLeakContext, leakCheck } from "./leakcheck.ts";
 import { buildReflectorPrompt, runReflector, type Trajectory } from "./reflector.ts";
-import { buildIdentifierAllowList, unknownIdentifiers } from "./schemacheck.ts";
+import { buildIdentifierAllowList, candidateColumnRefs, unknownIdentifiers } from "./schemacheck.ts";
 import { createVersion, diffVersions, nextVersionId, readVersion, updateManifest, updateMetrics, versionFiles } from "./store.ts";
 
 export const K = 3;
@@ -76,6 +76,12 @@ export const MAX_CONSECUTIVE_REJECTS = 5;
 /** A reflector reply that cannot be parsed is an infrastructure failure, not a bad idea. */
 export const countsAsReject = (stage: string) => stage !== "parse";
 
+/** SMOKE runs on train, where e.g. timeouts never occur: a routing change cannot show fixes there,
+ *  so it only has to break nothing; the val gate (early stop, cost-guard) decides (v008 fix). */
+export function smokePasses(o: { kind: "content" | "routing"; fixed: number; broken: number }): boolean {
+  return o.kind === "routing" ? o.broken === 0 : o.fixed - o.broken >= SMOKE_MIN_NET_FIXED;
+}
+
 /** Smallest spend a generation can make before anything is stored (reflection + SMOKE). */
 export const MIN_GENERATION_USD = 1;
 export function canStartGeneration(remainingUsd: number): boolean {
@@ -100,7 +106,7 @@ export function rejectedMemory(repo: string, parent: string): Array<{ id: string
     .filter((d) => /^v\d{3}$/.test(d) && existsSync(join(repo, "versions", d, "manifest.json")))
     .sort()
     .map((id) => ({ id, m: JSON.parse(readFileSync(join(repo, "versions", id, "manifest.json"), "utf8")) }))
-    .filter(({ m }) => m.status === "rejected" && m.parent === parent)
+    .filter(({ m }) => m.status === "rejected" && m.parent === parent && m.reject_stage !== "prefilter_bug")
     .map(({ id, m }) => {
       const mp = join(repo, "versions", id, "metrics.json");
       const met = existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {};
@@ -372,11 +378,10 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       }
 
       // unknown_column — snake_case identifiers in natural-language parts must exist (before any spend)
-      const prose = [
-        ...cur.content.playbook.rules.map((r) => r.text),
-        ...Object.values(cur.content.skills).map((f) => f["SKILL.md"] ?? ""),
-        ...Object.values(cur.content.manifest.tool_descriptions ?? {}),
-      ].join("\n");
+      const prose = candidateColumnRefs({
+        rules: [...cur.content.playbook.rules.map((r) => r.text), ...Object.values(cur.content.manifest.tool_descriptions ?? {})],
+        skillDocs: Object.values(cur.content.skills).map((f) => f["SKILL.md"] ?? ""),
+      });
       const unknown = unknownIdentifiers(prose, new Set([...identifiers, ...Object.keys(cur.content.skills)]));
       if (unknown.length) {
         const id = createVersion(repo, {
@@ -439,9 +444,11 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       const broken = passed.filter((r) => !sm.get(r.task_id)).length;
       const need = SMOKE_MIN_NET_FIXED;
       updateMetrics(repo, cand, { smoke: { fixed, broken, need, run_id: sr.id } });
-      if (fixed - broken < need) {
+      if (!smokePasses({ kind: refl.proposal.kind, fixed, broken })) {
         updateManifest(repo, cand, { status: "rejected", reject_stage: "smoke" });
-        updateMetrics(repo, cand, { reject_reason: `smoke: fixed ${fixed} − broken ${broken} < ${need}` });
+        updateMetrics(repo, cand, {
+          reject_reason: refl.proposal.kind === "routing" ? `smoke (routing): broken ${broken} > 0` : `smoke: fixed ${fixed} − broken ${broken} < ${need}`,
+        });
         rejected.push(cand);
         consecutiveRejects++;
         continue;

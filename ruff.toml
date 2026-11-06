@@ -1,1 +1,1 @@
-extend-exclude = ["bundle", "harness/node_modules"]
+extend-exclude = ["bundle", "harness/node_modules", "versions"]  # versions/: model-generated skill code is version data

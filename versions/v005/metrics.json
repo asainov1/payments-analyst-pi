@@ -1,0 +1,18 @@
+{
+  "val": null,
+  "reflect_cost_usd": 0.1428544,
+  "curation": {
+    "applied": 1,
+    "skipped_duplicates": [],
+    "rules_before": 0,
+    "rules_after": 1,
+    "tokens_after": 118
+  },
+  "smoke": {
+    "fixed": 1,
+    "broken": 0,
+    "need": 2,
+    "run_id": "4ec9e569-5bb3-4f17-91e9-42a9dbc3a176"
+  },
+  "reject_reason": "smoke: fixed 1 − broken 0 < 2"
+}
