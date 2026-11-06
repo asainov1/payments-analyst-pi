@@ -52,6 +52,8 @@ export interface BatchRunnerOptions {
   ioDir: string;
   repoRoot: string;
   maxAttempts?: number;
+  /** Run the first task alone so it writes the prompt-cache prefix, then fan out (SPEC step 9, з). */
+  warmup?: boolean;
 }
 
 export class BatchRunner {
@@ -59,7 +61,7 @@ export class BatchRunner {
   private readonly active = new Map<string, Promise<void>>();
 
   constructor(opts: BatchRunnerOptions) {
-    this.o = { maxAttempts: 2, ...opts };
+    this.o = { maxAttempts: 2, warmup: false, ...opts };
     // Crash recovery: whatever was in flight when the previous process died is pending again.
     this.o.db.exec("UPDATE run_tasks SET status = 'pending' WHERE status = 'running'");
     this.o.db.exec("UPDATE runs SET status = 'queued' WHERE status = 'running'");
@@ -127,7 +129,7 @@ export class BatchRunner {
   }
 
   private async process(runId: string): Promise<void> {
-    const { db, solver, concurrency, maxAttempts } = this.o;
+    const { db, solver, concurrency, maxAttempts, warmup } = this.o;
     const run = db.prepare("SELECT version, tasks_file, out_path, scorable FROM runs WHERE id = ?").get(runId) as {
       version: string;
       tasks_file: string;
@@ -148,35 +150,41 @@ export class BatchRunner {
     const queue = loadTasks(run.tasks_file).filter((t) => pendingIds.has(t.task_id));
 
     let stopped = false;
-    const setTask = db.prepare("UPDATE run_tasks SET status = ?, attempts = ?, answer = ? WHERE run_id = ? AND task_id = ?");
+    const setTask = db.prepare("UPDATE run_tasks SET status = ?, attempts = ?, answer = ?, ms = ? WHERE run_id = ? AND task_id = ?");
 
-    const worker = async () => {
-      for (let t = queue.shift(); t && !stopped; t = queue.shift()) {
-        const row = db.prepare("SELECT attempts FROM run_tasks WHERE run_id = ? AND task_id = ?").get(runId, t.task_id) as { attempts: number };
-        let attempts = row.attempts;
-        for (;;) {
-          attempts++;
-          setTask.run("running", attempts, null, runId, t.task_id);
-          try {
-            const { answer } = await solver({ question: t.question, guidelines: t.guidelines }, { runId, taskId: t.task_id, version: run.version });
-            appendAnswer(run.out_path, t.task_id, answer);
-            setTask.run("done", attempts, answer, runId, t.task_id);
-            break;
-          } catch (e) {
-            if (e instanceof BudgetExhausted) {
-              stopped = true;
-              setTask.run("pending", attempts - 1, null, runId, t.task_id);
-              break;
-            }
-            if (attempts >= maxAttempts) {
-              appendAnswer(run.out_path, t.task_id, "Not Applicable");
-              setTask.run("error", attempts, "Not Applicable", runId, t.task_id);
-              break;
-            }
+    const solveOne = async (t: TaskLine) => {
+      const row = db.prepare("SELECT attempts FROM run_tasks WHERE run_id = ? AND task_id = ?").get(runId, t.task_id) as { attempts: number };
+      let attempts = row.attempts;
+      const started = Date.now();
+      for (;;) {
+        attempts++;
+        setTask.run("running", attempts, null, null, runId, t.task_id);
+        try {
+          const { answer } = await solver({ question: t.question, guidelines: t.guidelines }, { runId, taskId: t.task_id, version: run.version });
+          appendAnswer(run.out_path, t.task_id, answer);
+          setTask.run("done", attempts, answer, Date.now() - started, runId, t.task_id);
+          return;
+        } catch (e) {
+          if (e instanceof BudgetExhausted) {
+            stopped = true;
+            setTask.run("pending", attempts - 1, null, null, runId, t.task_id);
+            return;
+          }
+          if (attempts >= maxAttempts) {
+            appendAnswer(run.out_path, t.task_id, "Not Applicable");
+            setTask.run("error", attempts, "Not Applicable", Date.now() - started, runId, t.task_id);
+            return;
           }
         }
       }
     };
+    const worker = async () => {
+      for (let t = queue.shift(); t && !stopped; t = queue.shift()) await solveOne(t);
+    };
+    if (warmup && queue.length > 1) {
+      const first = queue.shift();
+      if (first) await solveOne(first);
+    }
     await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
 
     if (stopped) {

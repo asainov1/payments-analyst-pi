@@ -66,6 +66,17 @@ npm run test:live             # live LLM tests (cost cents)
 
 `harness solve | improve | report`, the UI and MCP are added in the next steps (SPEC §6).
 
+## Budget and the holdout run
+
+- The LiteLLM key has a $150 limit. Our own runs are capped at **$135** (`GLOBAL_BUDGET_USD`, enforced by the
+  in-process proxy before every LLM call); **$15 is reserved for the organisers' holdout run** with the same key.
+- **Holdout cost estimate:** _$/task of the frozen best version × number of holdout tasks — filled in from the final
+  val run (REPORT.md)._
+- **Honest caveat:** the spend ledger lives in `state/harness.db`, which is not in git. On a clean clone the internal
+  cap starts from zero, so the harness does not know what was already spent on the key. The real protection in
+  that setting is the key's own $150 limit on the LiteLLM side; set `GLOBAL_BUDGET_USD` lower if you want a tighter
+  local cap.
+
 ## Observability
 
 Each task / chat turn is one Langfuse trace: an `agent` root, a `generation` per LLM call

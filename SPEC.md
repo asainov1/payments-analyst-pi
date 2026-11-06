@@ -496,6 +496,11 @@ zimran-task/
 - Метрика кэша считается из usage каждого LLM-вызова, а не предполагается: `cache_read / (input + cache_read + cache_write)` per version и per run.
 - Total spend: ledger в SQLite + снимок `GET /key/info` LiteLLM в начале и в конце дня.
 
+### 9.2a Holdout и бюджет (подтверждено организаторами)
+
+- Holdout запускают организаторы **с нашим ключом**, в пределах его лимита $150. Резерв $15 под holdout — **жёсткий**: кап наших прогонов $135 (`GLOBAL_BUDGET_USD`).
+- Наш ledger лежит в `state/` (не в git) → у организаторов внутренний кап стартует с нуля; реальная защита у них — лимит ключа $150. Это честно написано в README.
+
 ### 9.3 Финальный чек-лист сдачи
 
 - [ ] `clean-clone-test.sh` зелёный на свежем клоне
@@ -505,4 +510,7 @@ zimran-task/
 - [ ] REPORT.md: таблица версий, total spend, шум, «что не сработало», уверенность
 - [ ] README.md: диаграмма, запуск, MCP one-liners, решения, «ещё неделя»
 - [ ] `langfuse-export.tar.zst` проверен импортом; ссылка или файл приложен
+- [ ] **все фоновые прогоны (improve, solve, эксперименты) остановлены** — `docker compose ps`, `ps aux | grep harness` пусто
+- [ ] **остаток ключа по `x-litellm-key-spend` (заголовок ответа LiteLLM) ≥ $15 (holdout) + ~$3 (демо)**; `/key/info` для нашего ключа отдаёт `spend 0` — не годится
+- [ ] в README и REPORT — «стоимость holdout» = $/задача frozen best × N задач holdout, видно, что резерва $15 хватает
 - [ ] zip / ссылка на репо отправлены

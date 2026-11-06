@@ -46,6 +46,7 @@ const MIGRATIONS: string[] = [
    ALTER TABLE ledger ADD COLUMN aborted INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE ledger ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE ledger ADD COLUMN ms INTEGER;`,
+  `ALTER TABLE run_tasks ADD COLUMN ms INTEGER;`,
 ];
 
 export type Db = DatabaseSync;
