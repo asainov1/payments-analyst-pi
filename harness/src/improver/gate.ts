@@ -76,3 +76,8 @@ export function gateDecision(o: { parent: Side; cand: Side; levels: Record<strin
   d.reason = fails.length ? fails.join("; ") : `mean +${(cc - pc).toFixed(2)} ≥ T=${o.T}, wins ${wins} / losses ${losses}`;
   return d;
 }
+
+/** VALIDATE early stop: the candidate's first val run is more than T below the parent's mean → reject without the remaining runs. */
+export function earlyStop(candFirst: number, parentMean: number, T: number): boolean {
+  return parentMean - candFirst > T;
+}

@@ -11,7 +11,7 @@ import { improve } from "./loop.ts";
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { generations: { type: "string", default: "3" }, "budget-usd": { type: "string", default: "20" } } });
+  const { values } = parseArgs({ options: { generations: { type: "string", default: "3" }, "budget-usd": { type: "string", default: "20" }, "no-new-generation-after": { type: "string" } } });
   const app = await createRuntime({ repoRoot: ROOT });
   const id = `imp-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "")}-${randomUUID().slice(0, 4)}`;
   try {
@@ -19,6 +19,7 @@ async function main(): Promise<void> {
       generations: Number(values.generations),
       budgetUsd: Number(values["budget-usd"]),
       improveRunId: id,
+      noNewGenerationAfter: values["no-new-generation-after"],
       onProgress: (stage, info) => console.log(`[${new Date().toISOString()}] ${stage} ${JSON.stringify(info)}`),
     });
     console.log(`DONE ${JSON.stringify(r)}`);

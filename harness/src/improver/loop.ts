@@ -1,6 +1,6 @@
 // Improver loop (SPEC §3.4): per generation ANALYZE → PROPOSE → CURATE → LEAKCHK → SMOKE → VALIDATE (val ×3)
 // → GATE → PROMOTE | REJECT. Every proposal becomes a version (rejected ones too). Budget-guarded.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Db } from "../db/db.ts";
 import { phaseBudgetGuard } from "../experiments/baseline-lib.ts";
@@ -10,7 +10,7 @@ import { mulberry32 } from "../runs/splits.ts";
 import type { AppRuntime } from "../runtime/app.ts";
 import { BudgetExhausted } from "../runtime/budget.ts";
 import { curate } from "./curator.ts";
-import { gateDecision, pairFlips, thresholdT } from "./gate.ts";
+import { earlyStop, gateDecision, pairFlips, thresholdT } from "./gate.ts";
 import { buildLeakContext, leakCheck } from "./leakcheck.ts";
 import { buildReflectorPrompt, runReflector, type Trajectory } from "./reflector.ts";
 import { createVersion, diffVersions, nextVersionId, readVersion, updateManifest, updateMetrics, versionFiles } from "./store.ts";
@@ -24,6 +24,36 @@ export interface ImproveOptions {
   improveRunId: string;
   onProgress?: (stage: string, info: Record<string, unknown>) => void;
   analyzeSize?: number;
+  /** Local "HH:MM": no new generation starts after this time (a running one finishes). */
+  noNewGenerationAfter?: string;
+}
+
+export function pastCutoff(hhmm: string | undefined, now = new Date()): boolean {
+  if (!hhmm) return false;
+  const [h, m] = hhmm.split(":").map(Number);
+  return now.getHours() * 60 + now.getMinutes() > h * 60 + m;
+}
+
+/** Atomic BEST update (temp file + rename): a kill never leaves a half-written pointer. */
+export function writeBest(repo: string, id: string): void {
+  const tmp = join(repo, "versions", "BEST.tmp");
+  writeFileSync(tmp, `${id}\n`);
+  renameSync(tmp, join(repo, "versions", "BEST"));
+}
+
+/** Versions left as `candidate` by a killed run are marked rejected (interrupted); BEST is untouched. */
+export function recoverInterrupted(repo: string): string[] {
+  const out: string[] = [];
+  for (const id of readdirSync(join(repo, "versions")).filter((d) => /^v\d{3}$/.test(d)).sort()) {
+    const mp = join(repo, "versions", id, "manifest.json");
+    if (!existsSync(mp)) continue;
+    const m = JSON.parse(readFileSync(mp, "utf8"));
+    if (m.status !== "candidate") continue;
+    updateManifest(repo, id, { status: "rejected", reject_stage: "interrupted" });
+    updateMetrics(repo, id, { reject_reason: "interrupted: the improve run stopped before this candidate was gated" });
+    out.push(id);
+  }
+  return out;
 }
 
 const loadTasks = (repo: string, f: string): Task[] =>
@@ -105,6 +135,8 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
     return ids;
   };
 
+  const recovered = recoverInterrupted(repo);
+  if (recovered.length) progress("recovered", { interrupted: recovered });
   let parent = readFileSync(join(repo, "versions", "BEST"), "utf8").trim();
   const parentIds0 = await valRunsOf(parent);
   const T = thresholdT(pairFlips(parentIds0.map((id) => correctMap(app.db, id))), K);
@@ -113,6 +145,10 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
 
   let consecutiveRejects = 0;
   for (let gen = 1; gen <= o.generations && consecutiveRejects < 3; gen++) {
+    if (pastCutoff(o.noNewGenerationAfter)) {
+      progress("time_cutoff", { gen, after: o.noNewGenerationAfter });
+      break;
+    }
     const tag = `${o.improveRunId}-g${gen}`;
     try {
       // ANALYZE — domain-based priority: hard fee tasks of all formats first, then the rest.
@@ -235,9 +271,23 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
         continue;
       }
 
-      // VALIDATE + GATE
-      const candIds = await valRunsOf(cand);
+      // VALIDATE (early stop after the first run) + GATE
       const parentIds = await valRunsOf(parent);
+      const parentMean = parentIds.reduce((s, id) => s + [...correctMap(app.db, id).values()].filter(Boolean).length, 0) / parentIds.length;
+      progress("validate", { version: cand, run: 1 });
+      const first = await solve(`${o.improveRunId}-${cand}-val-1`, val, cand);
+      const firstCorrect = [...correctMap(app.db, first.id).values()].filter(Boolean).length;
+      updateMetrics(repo, cand, { val_run_ids: [first.id] });
+      if (earlyStop(firstCorrect, parentMean, T)) {
+        materializeValMetrics(app, cand, [first.id], levels);
+        updateManifest(repo, cand, { status: "rejected", reject_stage: "gate" });
+        updateMetrics(repo, cand, { reject_reason: `gate early stop: first val run ${firstCorrect} < parent mean ${parentMean.toFixed(2)} − T=${T}` });
+        progress("gate", { gen, version: cand, decision: "reject", reason: "early_stop" });
+        rejected.push(cand);
+        consecutiveRejects++;
+        continue;
+      }
+      const candIds = await valRunsOf(cand);
       const pm = JSON.parse(readFileSync(join(repo, "versions", parent, "metrics.json"), "utf8"));
       const cm = JSON.parse(readFileSync(join(repo, "versions", cand, "metrics.json"), "utf8"));
       const decision = gateDecision({
@@ -250,7 +300,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       progress("gate", { gen, version: cand, decision: decision.decision, reason: decision.reason });
       if (decision.decision === "promote") {
         updateManifest(repo, cand, { status: "promoted" });
-        writeFileSync(join(repo, "versions", "BEST"), `${cand}\n`);
+        writeBest(repo, cand);
         app.db.prepare("UPDATE feedback SET consumed_by = ? WHERE consumed_by IS NULL").run(cand);
         promoted.push(cand);
         parent = cand;
