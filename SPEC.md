@@ -1,6 +1,6 @@
 # SPEC — Self-improving payments analyst on Pi
 
-Источники: `~/Desktop/ai-engineer-test-assignment/README.md` (далее «задание»), PDF, llm-access.md, ответы в чате.
+Источники: `ASSIGNMENT.md` (текст задания, копия `~/Desktop/ai-engineer-test-assignment/README.md`; далее «задание»), PDF, llm-access.md, ответы в чате.
 Дата: 2026-11-06.
 
 ---
@@ -63,7 +63,7 @@ flowchart LR
   TASKS[(tasks/ scorer/<br/>ro, только BR и score)]
   IO[(./io → /io<br/>holdout in/out)]
   LLM[[LiteLLM<br/>litellm.zimran.net]]
-  LF[(Langfuse v3<br/>web+worker+pg+clickhouse+redis+minio)]
+  LF[(Langfuse v4<br/>web+worker+pg+clickhouse+redis+minio)]
   SCORER[[python scorer/score.py]]
 
   UI -- SSE --> API
@@ -222,7 +222,7 @@ PROPOSE  ─ reflector (Opus/Sonnet, Pi-сессия через Tracer) полу
            правила и skills только описывают, КАК вычислить; числа агент получает запросом к данным в момент ответа
 CURATE   ─ curator применяет ops (детерминированно, без LLM). Reject (версия сохраняется, status=rejected, reject_stage=curator, val=null):
            invalid_op · over_limit (> 40 правил или > 3000 токенов после применения) · growth_under_pressure (родитель ≥ 80% и rules_after > rules_before)
-           · empty (после дедупа не осталось изменений). Отдельной LLM-консолидации-кандидата нет: README §2.2 — промоушен только при росте val,
+           · empty (после дедупа не осталось изменений). Отдельной LLM-консолидации-кандидата нет: ASSIGNMENT §2.2 — промоушен только при росте val,
            поэтому консолидация = обычный content-Proposal с merge/remove и проходит обычный гейт
 LEAKCHK  ─ отклонить, если в патче: task_id; ≥ 8-словная n-gram из любого question train/val; любой gold-ответ train/val длиной ≥ 4 символов как литерал;
            упоминание путей `tasks/`, `scorer/`, `*.jsonl`.
@@ -236,7 +236,7 @@ GATE     ─ promote ⇔ (confirmed_wins − losses ≥ T) ∧ easy_regressions 
            T = max(2, |c₁ − c₂| + 1), c₁ / c₂ — correct двух прогонов v000 на val (считается до шага 13, пишется в config и REPORT)
 PROMOTE  ─ status=promoted, BEST=vNNN, свежий train-sample(60) для следующего ANALYZE
 REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, val=null если до VALIDATE); ops и причина → «негативная память» reflector'а (не повторять).
-           Каждая версия сохраняется (README §2.2 «keeps every version»), в git тоже
+           Каждая версия сохраняется (ASSIGNMENT §2.2 «keeps every version»), в git тоже
 Выход: generations исчерпаны ∨ budget_usd исчерпан ∨ 3 rejected подряд ∨ глобальный кап
 ```
 
@@ -318,7 +318,7 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 
   Заголовков `x-ratelimit-*` прокси **не отдаёт** → Governor стартует со статических лимитов из env и снижает темп на 429. Каждый ответ несёт `x-litellm-response-cost` (+ разбивку input / output / cache) — это точная стоимость вызова от самого прокси. Opus / gpt / gemini ценами пока не проверены.
 - **Стоимость:** первично `usage.cost` из Pi (по ценам в `models.json`); в конце run сверяемся с `GET /key/info` LiteLLM (spend по ключу), расхождение > 10% → warning в report.
-- **Langfuse v3** (self-hosted, официальный compose): `LANGFUSE_HOST=http://langfuse-web:3000`, ключи проекта задаются через `LANGFUSE_INIT_*` env, поэтому работает из чистого клона без ручной настройки.
+- **Langfuse v4** (`4.74.0`, self-hosted, урезанный официальный compose): `LANGFUSE_HOST=http://langfuse-web:3000`, ключи проекта задаются через `LANGFUSE_INIT_*` env, поэтому работает из чистого клона без ручной настройки.
 - **Песочница `py-sandbox`** (отдельный compose-сервис): только сеть `sandbox` с `internal: true` (нет egress; harness подключён к ней и к default), `read_only: true` + tmpfs `/work`, `user: "65534:65534"`, `mem_limit: 1g`, `pids_limit: 128`, `cpus: 1`, `cap_drop: [ALL]`, `no-new-privileges`. Mounts: `bundle/data:ro`, `versions:ro`. **Нет** `tasks/`, `scorer/`, `state/`, `.env`. Минимальный exec-сервер (POST `/exec {code, session, version}` → `{stdout, stderr, exit, ms}`).
 - **harness:** `bundle/data`, `bundle/tasks`, `bundle/scorer` `:ro`; `./io:/io` (rw); egress нужен только на LiteLLM и Langfuse (внутри compose). Сетевой allow-list для самого harness не ставим (§7).
 - **Скорер:** только как subprocess; при старте проверяем `sha256(scorer/score.py) == scorer/SHA256`, иначе отказ.
@@ -372,7 +372,7 @@ zimran-task/
 |---|---|---|
 | 1 ✅ | **Пробник LiteLLM:** `/v1/models`, `/v1/messages` для Sonnet/Haiku с `cache_control`, два одинаковых запроса; заголовки rate-limit / cost | на 2-м запросе `cache_read_input_tokens > 0`; записаны цены, `x-ratelimit-*` (→ RPM/TPM Governor) |
 | 2 ✅⁴ | **Pi + LiteLLM** через SDK: `models.json`, одна сессия, `customTools` с тестовым tool, подписка на события | скрипт печатает `tool_execution_start/end` и `message.usage.cacheRead > 0` на 2-м ходе |
-| 3 | **Langfuse в compose** + Tracer на событиях Pi. **Time-box 40 мин** на v3 (web+worker+pg+clickhouse+redis+minio); не взлетел → fallback **Langfuse v2 + Postgres** (тот же JS SDK, тот же Tracer) | `docker compose up` → трейс с generation (tokens / cost / cacheRead) и tool-span виден в UI Langfuse |
+| 3 ✅⁵ | **Langfuse в compose** + Tracer на событиях Pi. **Time-box 40 мин** на v4 (план писался под v3) (web+worker+pg+clickhouse+redis+minio); не взлетел → fallback **Langfuse v2 + Postgres** (тот же JS SDK, тот же Tracer) | `docker compose up` → трейс с generation (tokens / cost / cacheRead) и tool-span виден в UI Langfuse |
 | 4 ✅¹ | **Tools `sql` + `read_manual`**, DuckDB-таблицы + `enable_external_access=false`, промпт v000 (manual + схема); BR отдаёт агенту только question + guidelines | 3 easy train-задачи верно через `harness-dev ask`; vitest: `sql` с `read_json_auto('…/val.jsonl')` → ошибка |
 | 5 ✅ | **`validate` + `submit_answer`** | vitest: валидатор принимает **все** gold-ответы train+val в их guidelines (277/277, включая 3 пустых `''`) и отвергает 12 заведомо кривых. Факт: для «rounded to N decimals» gold иногда короче (`-10.48` при N=14) → правило «≤ N знаков» |
 | 6 ✅² | **Governor:** семафор, token bucket (RPM/TPM из шага 1, адаптивное снижение на 429), retry, ledger, per-turn и per-task лимиты | vitest с fake-LLM: 429 → ретрай; кап $0.01 → `budget_exhausted`; лимит tool_calls → `limit_exceeded`; per-task $ превышен → задача `error` |
@@ -394,6 +394,8 @@ zimran-task/
 ² Governor готов как библиотека (`Governor.call`). Точка подключения к Pi (Pi сам делает HTTP-запросы) решается в шаге 2: хук Pi перед запросом или локальный governor-прокси между Pi и LiteLLM (бонус: точная стоимость из `x-litellm-response-cost`).
 
 ³ С fake-solver'ом; реальный агент подключается как `Solver` после шага 2. Сплит по факту: improve 148 / report-holdout 38 (`ceil(0.2·n)` по каждому уровню, seed 42). Относительные пути `--tasks` резолвятся от корня репо (`bundle/tasks/val.jsonl`).
+
+⁵ Langfuse v4 поднялся с первой попытки, fallback не понадобился. Живой тест (Haiku, ≈ $0.002): задача 1014 → в Langfuse `agent`-корень, 3 `generation` (токены, cache read/write, cost, latency 0.9–2.6 с), `tool` `sql` и `submit_answer`; `sessionId` = run id, `version` на каждом наблюдении. Экспорт / импорт (`scripts/export-langfuse.sh`, `import-langfuse.sh`) проверен: архив поднят в чистом проекте `lfcheck`, тот же трейс читается целиком.
 
 ⁴ Живой тест (Haiku, $0.003): tool-call через Pi → прокси → LiteLLM; cache read 18.9k на 2-м и 3-м вызове; **новая сессия с тем же system prompt тоже читает кэш** (18.8k) — fan-out batch работает от прогретого префикса; ledger = Pi `usage.cost` (±1%); на стриме LiteLLM `x-litellm-response-cost` не отдаёт → стоимость из usage.
 
@@ -419,12 +421,12 @@ zimran-task/
 | Claude через `anthropic-messages` | явный `cache_control`, измеримый `cache_read` | зависит от того, пропускает ли LiteLLM `/v1/messages` (шаг 1) |
 | Порядок промпта: статика → manual → схема → playbook → история → вопрос | максимальный общий префикс между задачами | правка playbook инвалидирует кэш версии (это нормально: версия = новый префикс) |
 | **Batch: `ask_user` выключен, трактовка + `assumptions` в трейс** (ваш ответ: в задании нет разрешения конфликта) | скорер засчитывает уточнение как ошибку | в batch агент «угадывает», что формально противоречит «clarifies instead of guessing» |
-| **Improver может писать playbook, skills / хелперы, описания tools, routing** (README §2.2 разрешает) | хелперы (матчинг fee-правил, месячные агрегаты) дают больше, чем текст промпта | риск переобучения → leak-check + gate на val |
-| **Curator детерминированный** (ACE-style: reflector предлагает дельты, curator применяет), лимит 40 правил / 3000 токенов; без LLM-консолидации как отдельного кандидата | README §2.2: промоушен только при росте val — «чистка» без прироста не может стать версией-победителем; давление ≥ 80% заставляет reflector сокращать через merge/remove внутри обычного гейта | при упоре в лимит прирост даётся тяжелее (нужно и сократить, и улучшить); оценка токенов `chars/4` грубая |
-| **Каждый Proposal = версия**, в т. ч. отклонённый curator'ом / leak-check'ом (`val = null`, причина, `reflect_cost_usd`) | README §2.2 «keeps every version, its diff, its scores and its cost» | номера версий тратятся на мусорные кандидаты; больше файлов в `versions/` |
-| Отклонённые на leak-check хранятся с литералами, заменёнными на `[REDACTED:<check>]` | иначе сохранённый diff сам стал бы «хранением task-specific answers» (README §2.2) | diff такой версии не воспроизводит исходное предложение дословно |
-| **Нельзя** (подтверждено организаторами): конкретные ответы задач, `task_id`, формулировки вопросов, пути к `tasks/` / `scorer/` — ни в playbook, ни в skills, ни в коде версий | README §2.2 «must not store task-specific answers» | leak-check отклоняет такие кандидаты (§3.4) |
-| **Можно** (подтверждено организаторами): общие правила и формулы в playbook / skills, хелпер-скрипты, которые вычисляют значения из `data/` во время ответа | README §2.2 разрешает «playbook rules, Pi skills / helper scripts» | граница с «предвычисленными фактами» — по строке ниже |
+| **Improver может писать playbook, skills / хелперы, описания tools, routing** (ASSIGNMENT §2.2 разрешает) | хелперы (матчинг fee-правил, месячные агрегаты) дают больше, чем текст промпта | риск переобучения → leak-check + gate на val |
+| **Curator детерминированный** (ACE-style: reflector предлагает дельты, curator применяет), лимит 40 правил / 3000 токенов; без LLM-консолидации как отдельного кандидата | ASSIGNMENT §2.2: промоушен только при росте val — «чистка» без прироста не может стать версией-победителем; давление ≥ 80% заставляет reflector сокращать через merge/remove внутри обычного гейта | при упоре в лимит прирост даётся тяжелее (нужно и сократить, и улучшить); оценка токенов `chars/4` грубая |
+| **Каждый Proposal = версия**, в т. ч. отклонённый curator'ом / leak-check'ом (`val = null`, причина, `reflect_cost_usd`) | ASSIGNMENT §2.2 «keeps every version, its diff, its scores and its cost» | номера версий тратятся на мусорные кандидаты; больше файлов в `versions/` |
+| Отклонённые на leak-check хранятся с литералами, заменёнными на `[REDACTED:<check>]` | иначе сохранённый diff сам стал бы «хранением task-specific answers» (ASSIGNMENT §2.2) | diff такой версии не воспроизводит исходное предложение дословно |
+| **Нельзя** (подтверждено организаторами): конкретные ответы задач, `task_id`, формулировки вопросов, пути к `tasks/` / `scorer/` — ни в playbook, ни в skills, ни в коде версий | ASSIGNMENT §2.2 «must not store task-specific answers» | leak-check отклоняет такие кандидаты (§3.4) |
+| **Можно** (подтверждено организаторами): общие правила и формулы в playbook / skills, хелпер-скрипты, которые вычисляют значения из `data/` во время ответа | ASSIGNMENT §2.2 разрешает «playbook rules, Pi skills / helper scripts» | граница с «предвычисленными фактами» — по строке ниже |
 | **Предвычисленные факты о датасете не храним** (уточнено у организаторов): reflector обязан предлагать только вычисляющий код / правила «как считать», хардкод значений из данных запрещён промптом; leak-check отклоняет skill / правило с литеральной таблицей > 10 пар «имя → число» | граница overfitting: таблица значений из данных — скрытое хранение ответов, даже если формально это «факт о данных»; на holdout с другими вопросами она не обобщается | агент каждый раз пересчитывает (больше токенов и tool-вызовов); порог 10 пар — эвристика, мелкие справочники (например, маппинг capture_delay) проходят |
 | Reflector не видит значений gold-ответов, только верно/неверно (+ направление для чисел) | снижает риск зашивания ответов | ему сложнее найти причину ошибки |
 | Гейт: `confirmed_wins − losses ≥ T` (T из шума двух прогонов v000) ∧ 0 регрессий easy ∧ cost ≤ 1.3× родителя | 91 задача → 1 задача = 1.1 п.п.; прирост нельзя «купить» дорогой моделью | часть реальных улучшений будет отклонена; повторы flipped-задач и второй baseline стоят денег |
@@ -446,6 +448,10 @@ zimran-task/
 | Модель на сессию: `maxTokens = max(limit, thinkingBudget + 1024)`; допустимые thinking: off/minimal/low/medium/high (у наших моделей нет `thinkingLevelMap` → xhigh/max недоступны) → иначе 422 `version_invalid` | правило из Q10; 1024 = `MIN_ANSWER_TOKENS` самого Pi | — |
 | Pi: `cacheWarming=off`, compaction off в batch / on в чате, изолированный `agentDir` в `state/`, `noExtensions/noSkills/noContextFiles`, `User-Agent` снят | честный замер hit rate; ничего из `~/.pi` разработчика не попадает в харнесс | skills версий подключаются своим `read_skill`, не механизмом Pi |
 | Явные зависимости `@earendil-works/pi-ai@1.5.0` и `typebox@1.3.27` (те же версии, что внутри Pi) | импортируем `thinkingBudgetForLevel` и `Type` напрямую, не через транзитивные пакеты | — |
+| **Langfuse v4 `4.74.0`** (не v3 из исходного плана: v4 — текущий официальный compose; самый свежий 4.76 не берём — вышел вчера); compose урезан: без AI gateway, телеметрия off, наружу только `:3000`, проект и ключи через `LANGFUSE_INIT_*` | чистый клон поднимается без ручной настройки | v4 работает в режиме `events_only`: старый `/api/public/traces/{id}` недоступен, чтение — через `/api/public/v2/observations` |
+| Трейсинг через официальный SDK `@langfuse/tracing` + `@langfuse/otel` `6.0.2` (OTLP; старый `/api/public/ingestion` в v4 deprecated) на собственном `NodeTracerProvider` (не глобальный) | SDK сам шлёт `x-langfuse-ingestion-version: 4` → данные видны сразу | OTel зафиксирован на линии 2.x (`api 1.9.1`, `sdk-trace-* 2.12.0`, `exporter-trace-otlp-http 0.223.0`): exporter `0.301` требует `api ≥ 1.10` и `sdk-trace 3.x`, несовместимые с `core 2.x`, который нужен Langfuse SDK |
+| Стоимость в Langfuse — из Pi `usage.cost` (та же `config/prices.json`, совпадение с ledger прокси ±1% проверено вживую); генерация начинается в момент отправки запроса, `completionStartTime` — первый токен | трейс строится синхронно из событий Pi, без сопоставления с событиями прокси | ledger прокси остаётся источником истины для бюджета; у прерванных вызовов в трейсе нет оценочной стоимости |
+| Экспорт Langfuse = tar всех volume'ов (Postgres, ClickHouse, MinIO, Redis) при остановленном стеке | один формат, проверенный восстановлением в чистом проекте | на время экспорта Langfuse недоступен (минута) |
 
 ---
 

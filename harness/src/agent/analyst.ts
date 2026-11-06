@@ -6,6 +6,7 @@ import { resolveModelConfig } from "../llm/model-config.ts";
 import { createPiSession, type PiRuntime } from "../llm/pi.ts";
 import type { PriceTable } from "../llm/prices.ts";
 import type { LlmUsageEvent } from "../llm/proxy.ts";
+import { type Tracing, traceTurn } from "../obs/tracer.ts";
 import type { Solver } from "../runs/batch.ts";
 import { LimitExceeded, TurnLimits } from "../runtime/limits.ts";
 import { loadManifest, versionDir } from "../versions/manifest.ts";
@@ -24,6 +25,8 @@ export interface AnalystDeps {
   onUsage: (fn: (e: LlmUsageEvent) => void) => () => void;
   /** Smoke/experiments only: run a version with a different analyst model. */
   modelOverride?: string;
+  /** Langfuse; null → no tracing (unit tests). */
+  tracing?: Tracing | null;
 }
 
 export interface SolveTrace {
@@ -33,6 +36,7 @@ export interface SolveTrace {
   toolCalls: number;
   costUsd: number;
   limit: string | null;
+  traceUrl: string | null;
 }
 
 const NUDGE = "You have not called submit_answer yet. Call it now with your final answer in exactly the required format.";
@@ -100,6 +104,17 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
         stop(err);
       }
     });
+    const lf = d.tracing
+      ? traceTurn(d.tracing, session, {
+          name: "task",
+          sessionId: ctx.runId,
+          version: ctx.version,
+          tags: ["solve", ctx.version, model.model],
+          metadata: { ref, task_id: ctx.taskId, model: model.model, thinking: model.thinking },
+          input: { question: task.question, guidelines: task.guidelines },
+          model: model.model,
+        })
+      : null;
     const timer = setTimeout(() => stop(new LimitExceeded("turn_s", `> ${v.limits.max_turn_s}s`)), v.limits.max_turn_s * 1000);
 
     try {
@@ -107,6 +122,11 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
       if (!slot.result() && !limit) await session.prompt(NUDGE);
     } finally {
       clearTimeout(timer);
+      const r0 = slot.result();
+      lf?.end(
+        { answer: r0?.answer ?? "Not Applicable", assumptions: r0?.assumptions ?? [] },
+        { valid: String(r0?.valid ?? "none"), limit: limit ?? "none", tool_calls: String(toolCalls), cost_usd: costUsd.toFixed(6) },
+      );
       unsubUsage();
       unsubSession();
       session.dispose();
@@ -120,6 +140,7 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
       toolCalls,
       costUsd,
       limit,
+      traceUrl: lf?.traceUrl ?? null,
     };
     onTrace?.(ctx.taskId, trace);
     return { answer: trace.answer };
