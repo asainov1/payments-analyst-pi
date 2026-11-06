@@ -69,6 +69,13 @@ export function assertRunsInDb(db: Db, ids: string[], version: string): void {
   if (missing.length) throw new RunFailed(`val runs of ${version} not in this state DB: ${missing.join(", ")} — copy the state DB that produced them or run from it`);
 }
 
+/** Pre-filter settings, changed after stage 2 (3 rejects: 2 parse bugs, 1 SMOKE with fixed = 1);
+ *  the val gate and T are unchanged. */
+export const SMOKE_MIN_NET_FIXED = 1;
+export const MAX_CONSECUTIVE_REJECTS = 5;
+/** A reflector reply that cannot be parsed is an infrastructure failure, not a bad idea. */
+export const countsAsReject = (stage: string) => stage !== "parse";
+
 /** Smallest spend a generation can make before anything is stored (reflection + SMOKE). */
 export const MIN_GENERATION_USD = 1;
 export function canStartGeneration(remainingUsd: number): boolean {
@@ -235,7 +242,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
   }
 
   let consecutiveRejects = 0;
-  for (let gen = 1; gen <= o.generations && consecutiveRejects < 3; gen++) {
+  for (let gen = 1; gen <= o.generations && consecutiveRejects < MAX_CONSECUTIVE_REJECTS; gen++) {
     if (pastCutoff(o.noNewGenerationAfter)) {
       progress("time_cutoff", { gen, after: o.noNewGenerationAfter });
       break;
@@ -339,9 +346,17 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       const reflectCost = app.ledger.spentUsd(reflectRef) - before;
       const summary = (refl.proposal?.rationale ?? "").slice(0, 240);
       if (!refl.proposal) {
-        const id = createVersion(repo, { parent, content: parentContent, status: "rejected", change_summary: "reflector returned no valid proposal", reflectCostUsd: reflectCost, rejectStage: "curator", rejectReason: `invalid_proposal: ${refl.error}` });
+        const id = createVersion(repo, {
+          parent,
+          content: parentContent,
+          status: "rejected",
+          change_summary: "reflector returned no valid proposal",
+          reflectCostUsd: reflectCost,
+          rejectStage: "parse",
+          rejectReason: `invalid_proposal: ${refl.error}`,
+        });
         rejected.push(id);
-        consecutiveRejects++;
+        if (countsAsReject("parse")) consecutiveRejects++;
         continue;
       }
 
@@ -422,7 +437,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       const sm = correctMap(app.db, sr.id);
       const fixed = problem.filter((r) => sm.get(r.task_id)).length;
       const broken = passed.filter((r) => !sm.get(r.task_id)).length;
-      const need = problem.length >= 4 ? 2 : 1;
+      const need = SMOKE_MIN_NET_FIXED;
       updateMetrics(repo, cand, { smoke: { fixed, broken, need, run_id: sr.id } });
       if (fixed - broken < need) {
         updateManifest(repo, cand, { status: "rejected", reject_stage: "smoke" });

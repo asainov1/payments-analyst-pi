@@ -105,6 +105,7 @@ per version; cache hit rates per run; $/task per version._
   part (12 failures, 2 slow successes; 0 unstable tasks — Sonnet is stable on train).
 - **Reflector reply cut off (v002).** Opus with a medium thinking budget inside a 16k output limit
   stopped mid-JSON. Fixed: low thinking, 32k output, one retry asking for the complete JSON.
+- **Stage 2, first two processes (v002–v006):** two reflector replies cut off mid-JSON (v002, v003), two parse failures on code fences inside skill strings (v004, v006), one rule rejected at SMOKE with fixed = 1 (v005, fraud ranking by rate). After stage 2 the SMOKE pre-filter was lowered to fixed − broken ≥ 1 and the consecutive-reject stop raised to 5; parse failures get one retry and no longer count as rejects. **The val gate and T = 3 were not changed.**
 - **Infrastructure bug found in stage 1:** crash recovery in every `BatchRunner` constructor re-queued
   a live run of the same process; recovery now runs once per process.
 - **Own mistake:** a val run was restarted by hand on a misread status (+$3.64).

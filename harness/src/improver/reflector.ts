@@ -179,7 +179,7 @@ export async function runReflector(o: {
       // one retry in the same session (prompt cache hit): the JSON was malformed or cut off
       error = String(e);
       await session.prompt(
-        "Your reply was not one complete JSON object (it may have been cut off). Reply again with ONLY the complete JSON proposal — rationale under 80 words, skill files short.",
+        `Your reply could not be parsed as one JSON object (${error.slice(0, 200)}). Reply again with ONLY the complete JSON proposal: no prose, no markdown fences around it, rationale under 80 words, skill files short.`,
       );
       try {
         proposal = parseProposal(text);

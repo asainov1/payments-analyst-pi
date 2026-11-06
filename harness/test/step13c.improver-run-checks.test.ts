@@ -51,3 +51,14 @@ describe("generation start needs a minimum budget", () => {
     expect(canStartGeneration(1.5)).toBe(true);
   });
 });
+
+describe("stage-2 pre-filter settings (agreed after stage 2)", () => {
+  test("SMOKE needs fixed − broken ≥ 1; the loop stops after 5 consecutive rejections; parse failures do not count", async () => {
+    const { SMOKE_MIN_NET_FIXED, MAX_CONSECUTIVE_REJECTS, countsAsReject } = await import("../src/improver/loop.ts");
+    expect(SMOKE_MIN_NET_FIXED).toBe(1);
+    expect(MAX_CONSECUTIVE_REJECTS).toBe(5);
+    expect(countsAsReject("parse")).toBe(false);
+    expect(countsAsReject("smoke")).toBe(true);
+    expect(countsAsReject("gate")).toBe(true);
+  });
+});
