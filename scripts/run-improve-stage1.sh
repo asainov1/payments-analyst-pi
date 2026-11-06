@@ -3,4 +3,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/../harness"
 node --env-file=../.env src/improver/seed.ts v000 b9-val-1-sonnet b9-val-2-sonnet
-LLM_CONCURRENCY=24 node --env-file=../.env src/improver/main.ts --generations 1 --budget-usd 13 --no-new-generation-after 17:15
+LLM_CONCURRENCY=24 node --env-file=../.env src/improver/main.ts --generations 1 --budget-usd 20 --no-new-generation-after 17:15
