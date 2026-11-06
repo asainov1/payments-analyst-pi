@@ -1,0 +1,20 @@
+{
+  "id": "v012",
+  "parent": "v000",
+  "created_at": "2026-11-06T10:42:44.526Z",
+  "status": "promoted",
+  "change_summary": "The largest measured loss is turns that hit the time cap, not any single numeric-error pattern. On validation, an average of 12.7 of 91 turns per run reached the 180 s limit and ended with no answer, and p95 sits exactly at the cap. Each of",
+  "models": {
+    "analyst": "claude-sonnet-5-5",
+    "reflector": "claude-sonnet-5-5"
+  },
+  "thinking": "off",
+  "limits": {
+    "max_tool_calls": 25,
+    "max_turn_usd": 0.5,
+    "max_turn_s": 260,
+    "max_task_usd": 1,
+    "max_output_tokens": 8192
+  },
+  "tool_descriptions": {}
+}

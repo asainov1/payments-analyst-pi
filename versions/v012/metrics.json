@@ -1,0 +1,53 @@
+{
+  "val": {
+    "correct": 70.67,
+    "n": 91,
+    "accuracy": 0.7765567765567766,
+    "by_level": {
+      "hard": 0.75,
+      "easy": 0.9696969696969697
+    },
+    "runs": [
+      72,
+      69,
+      71
+    ]
+  },
+  "reflect_cost_usd": 0.1610844,
+  "curation": {
+    "applied": 1,
+    "skipped_duplicates": [],
+    "rules_before": 0,
+    "rules_after": 0,
+    "tokens_after": 7
+  },
+  "smoke": {
+    "fixed": 0,
+    "broken": 0,
+    "need": 1,
+    "run_id": "a04cbebc-e168-4a5d-80bd-7bb9f74f4795"
+  },
+  "val_run_ids": [
+    "f0c211f3-efb2-4fbf-bb6f-f069fba698df",
+    "cef3c472-38ad-496d-8312-44117932917d",
+    "3eb1df62-58ea-4253-844d-d13179f6b6a4"
+  ],
+  "cost_usd": 13.298896599999999,
+  "cost_per_task_usd": 0.048713906959706954,
+  "cache_hit_rate": 0.9399990401158383,
+  "latency_p50_s": 8.975,
+  "latency_p95_s": 260.008,
+  "gate": {
+    "parent_correct": 67,
+    "cand_correct": 70.67,
+    "wins": 4,
+    "losses": 0,
+    "confirmed_wins": 4,
+    "easy_regressions": 0,
+    "threshold_T": 3,
+    "parent_cost_per_task": 0.03948861062271062,
+    "cand_cost_per_task": 0.048713906959706954,
+    "decision": "promote",
+    "reason": "mean +3.67 ≥ T=3, wins 4 / losses 0"
+  }
+}
