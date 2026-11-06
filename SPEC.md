@@ -348,7 +348,7 @@ zimran-task/
 | 1 ✅ | **Пробник LiteLLM:** `/v1/models`, `/v1/messages` для Sonnet/Haiku с `cache_control`, два одинаковых запроса; заголовки rate-limit / cost | на 2-м запросе `cache_read_input_tokens > 0`; записаны цены, `x-ratelimit-*` (→ RPM/TPM Governor) |
 | 2 | **Pi + LiteLLM** через SDK: `models.json`, одна сессия, `customTools` с тестовым tool, подписка на события | скрипт печатает `tool_execution_start/end` и `message.usage.cacheRead > 0` на 2-м ходе |
 | 3 | **Langfuse в compose** + Tracer на событиях Pi. **Time-box 40 мин** на v3 (web+worker+pg+clickhouse+redis+minio); не взлетел → fallback **Langfuse v2 + Postgres** (тот же JS SDK, тот же Tracer) | `docker compose up` → трейс с generation (tokens / cost / cacheRead) и tool-span виден в UI Langfuse |
-| 4 | **Tools `sql` + `read_manual`**, DuckDB-таблицы + `enable_external_access=false`, промпт v000 (manual + схема); BR отдаёт агенту только question + guidelines | 3 easy train-задачи верно через `harness-dev ask`; vitest: `sql` с `read_json_auto('…/val.jsonl')` → ошибка |
+| 4 ✅¹ | **Tools `sql` + `read_manual`**, DuckDB-таблицы + `enable_external_access=false`, промпт v000 (manual + схема); BR отдаёт агенту только question + guidelines | 3 easy train-задачи верно через `harness-dev ask`; vitest: `sql` с `read_json_auto('…/val.jsonl')` → ошибка |
 | 5 | **`validate` + `submit_answer`** | vitest: валидатор принимает **все** gold-ответы train+val в их guidelines (277/277, включая 3 пустых `''`) и отвергает 10 заведомо кривых |
 | 6 | **Governor:** семафор, token bucket (RPM/TPM из шага 1, адаптивное снижение на 429), retry, ledger, per-turn и per-task лимиты | vitest с fake-LLM: 429 → ретрай; кап $0.01 → `budget_exhausted`; лимит tool_calls → `limit_exceeded`; per-task $ превышен → задача `error` |
 | 7 | **Batch runner + `harness solve`** (CLI → API), `/io`-mount, resume, пропуск скоринга без `answer`, `config/splits.json` | `solve` на 10 train → скорер; A3 (restart посередине); файл без `answer` → `done` |
@@ -365,6 +365,8 @@ zimran-task/
 | 18 | **MCP** (Streamable HTTP; stdio = прокси к `:8080`, чтобы шёл через общий Governor) | Claude Code и Codex: `ask` → `needs_clarification` → `ask` с session_id → `answered` |
 | 19 | **Чистый клон** | `scripts/clean-clone-test.sh` зелёный (A1, A2 включая holdout-файл без `answer`) |
 | 20 | **Финализация deliverables** (§9): заморозка best, report-holdout для best, экспорт Langfuse, README / REPORT | чек-лист §9.3 закрыт |
+
+¹ Без LLM-части: смоук «3 easy train-задачи через агента» выполняется после шага 2 (Pi + LiteLLM).
 
 **Сквозные шаги deliverables (не в конце, а по ходу):**
 - после шага 3 — скелет `README.md` (mermaid из §2, «как запустить»), дальше дописываю по мере готовности;
