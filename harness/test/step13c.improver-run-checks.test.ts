@@ -33,3 +33,12 @@ describe("validation affordability", () => {
     expect(guard.spent()).toBeCloseTo(2.5);
   });
 });
+
+describe("val runs must exist in this state DB", () => {
+  test("ids missing from the runs table → clear error, before any metrics are rewritten", async () => {
+    const { assertRunsInDb } = await import("../src/improver/loop.ts");
+    const db = openDb(join(mkdtempSync(join(tmpdir(), "vr-")), "h.db"));
+    expect(() => assertRunsInDb(db, ["nope-1"], "v000")).toThrow(/val runs of v000 not in this state DB: nope-1/);
+    expect(() => assertRunsInDb(db, [], "v000")).not.toThrow();
+  });
+});

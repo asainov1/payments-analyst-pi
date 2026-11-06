@@ -61,6 +61,13 @@ export function assertRunOk(run: { id: string; status: string; error: string | n
   throw new RunFailed(`run ${label} (${run.id}) ended as ${run.status}: ${run.error ?? "no error recorded"}`);
 }
 
+/** Recorded val runs of a version must be in this state DB (e.g. not the case in a fresh container
+ *  volume) — otherwise its metrics.json would be recomputed from nothing and overwritten. */
+export function assertRunsInDb(db: Db, ids: string[], version: string): void {
+  const missing = ids.filter((id) => !(db.prepare("SELECT 1 FROM runs WHERE id = ? AND status = 'done'").get(id)));
+  if (missing.length) throw new RunFailed(`val runs of ${version} not in this state DB: ${missing.join(", ")} — copy the state DB that produced them or run from it`);
+}
+
 /** VALIDATE starts only if the remaining improve budget covers K val runs at the parent's cost ×1.3. */
 export function canAffordValidation(o: { remainingUsd: number; parentCostPerRunUsd: number; k: number }): boolean {
   return o.remainingUsd >= o.k * o.parentCostPerRunUsd * 1.3;
@@ -187,6 +194,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
     const mp = join(repo, "versions", version, "metrics.json");
     const m = (existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {}) as { val_run_ids?: string[] };
     const ids = [...(m.val_run_ids ?? [])];
+    assertRunsInDb(app.db, ids, version);
     // Missing runs go in parallel: the long tail of slow tasks overlaps; the shared governor keeps RPM.
     const missing = Array.from({ length: Math.max(0, K - ids.length) }, (_, i) => ids.length + i + 1);
     if (missing.length) progress("validate", { version, runs: missing });
