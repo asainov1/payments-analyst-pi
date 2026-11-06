@@ -41,10 +41,15 @@ pre { background: var(--soft); padding: 8px; border-radius: 6px; overflow-x: aut
 .versions { width: 100%; border-collapse: collapse; font-size: 13px; }
 .versions th, .versions td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .versions tr.best { background: var(--soft); }
-.summary { max-width: 260px; }
+.summary { max-width: 360px; }
+/* the versions table has many columns: use the full window on that page only */
+.app:has(.improvements) { max-width: none; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.clamp.open { display: block; }
 .actions { white-space: nowrap; }
 .actions button { margin-right: 4px; }
 .tag { margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 10px; background: var(--accent); color: #fff; }
 .status.promoted { color: var(--ok); } .status.rejected { color: var(--bad); } .status.candidate { color: var(--accent); }
 .diff .add { color: var(--ok); } .diff .del { color: var(--bad); }
 .diff { display: block; width: 100%; }
+.toolbar label input { width: auto; }

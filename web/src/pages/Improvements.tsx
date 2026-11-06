@@ -4,6 +4,12 @@ import { api, readSse, type VersionRow } from "../api.ts";
 const pct = (v?: number) => (v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);
 const usd = (v?: number) => (v === undefined ? "—" : `$${v.toFixed(4)}`);
 
+/** Long change summaries are clamped to 3 lines; click toggles the full text. */
+function Clamp({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return <div className={open ? "clamp open" : "clamp"} onClick={() => setOpen(!open)} title={open ? "" : text}>{text}</div>;
+}
+
 function Gate({ m }: { m: VersionRow["metrics"] }) {
   const g = m?.gate;
   if (!g) return <>{m?.reject_reason ?? "—"}</>;
@@ -28,6 +34,7 @@ export function Improvements() {
   const [error, setError] = useState<string | null>(null);
   const [generations, setGenerations] = useState(2);
   const [budgetUsd, setBudgetUsd] = useState(5);
+  const [hideRejected, setHideRejected] = useState(false);
   const [run, setRun] = useState<{ id: string; done: number; total: number; stage?: string; status: string } | null>(null);
 
   const load = () =>
@@ -77,6 +84,15 @@ export function Improvements() {
         {run && <span className="muted" data-testid="run-progress">run {run.id.slice(0, 8)}: {run.stage ? `${run.stage} ` : ""}{run.done}/{run.total} · {run.status}</span>}
       </section>
 
+      <div className="toolbar">
+        <span data-testid="version-counts">
+          {versions.length} versions · <span className="status promoted">{versions.filter((v) => v.status === "promoted").length} promoted</span> ·{" "}
+          <span className="status rejected">{versions.filter((v) => v.status === "rejected").length} rejected</span> ·{" "}
+          <span className="status candidate">{versions.filter((v) => v.status === "candidate").length} candidate</span> · best <strong>{best}</strong>
+        </span>
+        <label><input type="checkbox" checked={hideRejected} onChange={(e) => setHideRejected(e.target.checked)} /> hide rejected</label>
+      </div>
+
       <table className="versions" data-testid="versions">
         <thead>
           <tr>
@@ -85,7 +101,7 @@ export function Improvements() {
           </tr>
         </thead>
         <tbody>
-          {versions.map((v) => {
+          {versions.filter((v) => !(hideRejected && v.status === "rejected")).map((v) => {
             const m = v.metrics;
             return (
               <tr key={v.id} className={v.id === best ? "best" : ""}>
@@ -99,7 +115,7 @@ export function Improvements() {
                 <td>{usd(m?.cost_per_task_usd)}</td>
                 <td>{pct(m?.cache_hit_rate)}</td>
                 <td>{m?.latency_p50_s !== undefined ? `${m.latency_p50_s.toFixed(1)}s / ${m.latency_p95_s?.toFixed(1)}s` : "—"}</td>
-                <td className="summary">{v.change_summary}<div className="muted">{v.models?.analyst}{v.thinking ? ` · thinking ${v.thinking}` : ""}</div></td>
+                <td className="summary"><Clamp text={v.change_summary} /><div className="muted">{v.models?.analyst}{v.thinking ? ` · thinking ${v.thinking}` : ""}</div></td>
                 <td className="summary"><Gate m={m} /></td>
                 <td className="actions">
                   <button onClick={() => showDiff(v.id)} disabled={!v.parent}>Diff</button>
