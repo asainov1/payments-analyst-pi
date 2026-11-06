@@ -4,8 +4,17 @@
   "created_at": "2026-11-06",
   "status": "baseline",
   "change_summary": "Hand-written baseline: instructions + domain primer, full manual, data schema, empty playbook.",
-  "models": { "analyst": "claude-sonnet-5-5", "reflector": "claude-sonnet-5-5" },
+  "models": {
+    "analyst": "claude-sonnet-5-5",
+    "reflector": "claude-sonnet-5-5"
+  },
   "thinking": "off",
-  "limits": { "max_tool_calls": 25, "max_turn_usd": 0.5, "max_turn_s": 180, "max_task_usd": 1.0 },
+  "limits": {
+    "max_tool_calls": 25,
+    "max_turn_usd": 0.5,
+    "max_turn_s": 180,
+    "max_task_usd": 1.0,
+    "max_output_tokens": 8192
+  },
   "tool_descriptions": {}
 }

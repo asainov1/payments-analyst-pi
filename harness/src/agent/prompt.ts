@@ -12,7 +12,13 @@ export interface Task {
   answer?: string;
 }
 
-export async function buildSystemPrompt(opts: { versionDir: string; dataDir: string; db: DataDb }): Promise<string> {
+export type PromptMode = "chat" | "batch";
+
+const BATCH_RULES = `## Batch mode
+Nobody can answer clarifying questions in this mode. If the question is ambiguous, choose the most reasonable interpretation and list it in \`assumptions\`.
+Always finish by calling \`submit_answer\` with the final answer in exactly the format the answer guidelines require.`;
+
+export async function buildSystemPrompt(opts: { versionDir: string; dataDir: string; db: DataDb; mode?: PromptMode }): Promise<string> {
   const system = readFileSync(join(opts.versionDir, "system.md"), "utf8").trim();
   const manual = readFileSync(join(opts.dataDir, "manual.md"), "utf8").trim();
   const playbook = readFileSync(join(opts.versionDir, "playbook.md"), "utf8").trim();
@@ -22,6 +28,7 @@ export async function buildSystemPrompt(opts: { versionDir: string; dataDir: str
     `## Rules manual (manual.md)\n\n${manual}`,
     `## Data schema\n\nDuckDB tables (query with the \`sql\` tool):\n${schema}`,
     playbook,
+    ...(opts.mode === "batch" ? [BATCH_RULES] : []),
   ].join("\n\n---\n\n");
 }
 
