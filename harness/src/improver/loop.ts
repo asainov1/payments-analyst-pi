@@ -13,6 +13,7 @@ import { curate } from "./curator.ts";
 import { earlyStop, gateDecision, pairFlips, thresholdT } from "./gate.ts";
 import { buildLeakContext, leakCheck } from "./leakcheck.ts";
 import { buildReflectorPrompt, runReflector, type Trajectory } from "./reflector.ts";
+import { buildIdentifierAllowList, unknownIdentifiers } from "./schemacheck.ts";
 import { createVersion, diffVersions, nextVersionId, readVersion, updateManifest, updateMetrics, versionFiles } from "./store.ts";
 
 export const K = 3;
@@ -166,6 +167,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
   const improveSet = new Set(splits.improve);
   const pool = train.filter((t) => improveSet.has(t.task_id));
   const leakCtx = buildLeakContext(repo);
+  const identifiers = await buildIdentifierAllowList(repo, app.data);
   const startSpent = app.ledger.spentUsd();
   const promoted: string[] = [];
   const rejected: string[] = [];
@@ -328,6 +330,29 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       const cur = curate(parentContent, refl.proposal, nextId);
       if (!cur.ok) {
         const id = createVersion(repo, { parent, content: parentContent, status: "rejected", change_summary: summary, curation: cur.curation, reflectCostUsd: reflectCost, rejectStage: "curator", rejectReason: cur.reason });
+        rejected.push(id);
+        consecutiveRejects++;
+        continue;
+      }
+
+      // unknown_column — snake_case identifiers in natural-language parts must exist (before any spend)
+      const prose = [
+        ...cur.content.playbook.rules.map((r) => r.text),
+        ...Object.values(cur.content.skills).map((f) => f["SKILL.md"] ?? ""),
+        ...Object.values(cur.content.manifest.tool_descriptions ?? {}),
+      ].join("\n");
+      const unknown = unknownIdentifiers(prose, new Set([...identifiers, ...Object.keys(cur.content.skills)]));
+      if (unknown.length) {
+        const id = createVersion(repo, {
+          parent,
+          content: cur.content,
+          status: "rejected",
+          change_summary: summary,
+          curation: cur.curation,
+          reflectCostUsd: reflectCost,
+          rejectStage: "curator",
+          rejectReason: `unknown_column: ${unknown.join(", ")}`,
+        });
         rejected.push(id);
         consecutiveRejects++;
         continue;

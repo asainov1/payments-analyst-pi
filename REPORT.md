@@ -45,6 +45,18 @@ gate compares against Sonnet-v000. Between the two Sonnet val runs 6 tasks flip 
 - **What the reflector may see from val.** Only gold-independent runtime telemetry of the parent (turns that hit
   `max_turn_s`, turns > 60 s, p95) — the same kind of signal as a production timeout rate. Val correctness, task ids
   and question texts reach only the gate. Without it the improver cannot see the timeout class at all.
+## What did not work
+
+- **Stage 1 (v001, rejected at SMOKE, $3.34).** The reflector (Opus) wrote a rule about the column
+  `is_refused_by_adyen` — the name used in the public original of this dataset; here the column is
+  `is_refused_by_psp`. The model's knowledge of public benchmarks leaks into its proposals. Defence:
+  the exact schema is now in the reflector prompt, and a deterministic `unknown_column` check rejects
+  such candidates before any spend. Our data and answers did not come from outside sources.
+- **Thin train signal.** v000 on Sonnet gets 92% of improve-train right: an ANALYZE sample of 40 tasks
+  showed only 2 failures. ANALYZE now runs the whole improve split plus a second run of its hard part
+  and feeds unstable tasks (the two runs disagree) first.
+- **Own mistake:** a val run was restarted by hand on a misread status (+$3.64).
+
 - **Holdout uncertainty.** The organisers' holdout has different questions; given the gap above,
   neither the train nor the val accuracy is a reliable estimate for it. We report val (mean of 3)
   and report-holdout (held-out train) for the frozen best, and do not claim more than that.
