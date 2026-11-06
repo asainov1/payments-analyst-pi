@@ -108,7 +108,7 @@ interface VersionManifest {               // versions/vNNN/manifest.json — в 
   change_summary: string;                 // «что изменилось», 1–3 строки
   models: { analyst: string; reflector: string };   // model routing
   thinking: ThinkingLevel;                // enum Pi 1.x: 'off'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max' (xhigh/max — только если модель поддерживает)
-  limits: { max_tool_calls: number; max_turn_usd: number; max_turn_s: number; max_task_usd: number; max_output_tokens: number };  // не правится improver'ом
+  limits: { max_tool_calls: number; max_turn_usd: number; max_turn_s: number; max_task_usd: number; max_output_tokens: number };  // не правится improver'ом, кроме max_turn_s через RoutingOp
   tool_descriptions: Record<ToolName, string>;      // правится improver'ом
 }
 // + versions/vNNN/{system.md, playbook.json, playbook.md, skills/<name>/{SKILL.md, *.py}, diff.patch, metrics.json}
@@ -161,10 +161,11 @@ type ContentOp =
   | { op: 'playbook_merge'; rule_ids: string[]; text: string }  // ≥ 2 правил → одно новое (id новый, merged_from)
   | { op: 'skill_upsert'; name: string; skill_md: string; files: Record<string, string> }
   | { op: 'tool_description'; tool: ToolName; text: string };
-interface RoutingOp {                   // allow-list полей: только { model, thinking }
+interface RoutingOp {                   // allow-list полей: только { model, thinking, max_turn_s }
   op: 'routing';
   model?: 'claude-opus-5-5' | 'claude-sonnet-5-5' | 'claude-haiku-5-5'; // → models.analyst; только модели, зарегистрированные в Pi-провайдере (сейчас claude-*); gpt/gemini — после регистрации их провайдера
-  thinking?: ThinkingLevel;             // валидация по enum Pi SDK; лимиты/reflector improver не трогает
+  thinking?: ThinkingLevel;             // валидация по enum Pi SDK
+  max_turn_s?: number;                  // целое ∈ [120, 300]; кандидат обязан пройти cost-guard гейта (≤ 1.3× $/task родителя); прочие лимиты и reflector improver не трогает
 }
 type Proposal =
   | { kind: 'content'; rationale: string; ops: ContentOp[] }
@@ -215,7 +216,7 @@ running ──global budget exhausted───────▶ aborted
 ANALYZE  ─ родитель: провалы на последнем прогоне train-`improve`-сплита (+ непотреблённые 👎), кластеризация по типу ошибки (format / wrong-filter / wrong-formula / NA-misuse / timeout)
 PROPOSE  ─ reflector (Opus/Sonnet, Pi-сессия через Tracer) получает: текущие system/playbook/skills, ≤ 8 компактных трейсов провалов (вопрос, guidelines, шаги, ответ, «неверно»).
            Gold-ответ показываем ТОЛЬКО как «верно/неверно» + для чисел направление ошибки — значение не отдаём  → Proposal JSON
-           (content XOR routing; routing — только allow-list {model, thinking}, thinking ∈ enum Pi SDK)
+           (content XOR routing; routing — только allow-list {model, thinking, max_turn_s}, thinking ∈ enum Pi SDK, max_turn_s ∈ [120, 300])
            Давление лимита: если у родителя ≥ 80% любого лимита (≥ 32 правил или ≥ 2400 токенов), в промпт reflector'а
            добавляется обязательное условие «число правил не растёт: новые правила только через merge/remove существующих»
            Всегда в промпте reflector'а: **запрет хардкода значений из данных** (суммы, счётчики, ставки, списки id, «у мерчанта X объём Y») —
@@ -435,7 +436,7 @@ zimran-task/
 | **Предвычисленные факты о датасете не храним** (уточнено у организаторов): reflector обязан предлагать только вычисляющий код / правила «как считать», хардкод значений из данных запрещён промптом; leak-check отклоняет skill / правило с литеральной таблицей > 10 пар «имя → число» | граница overfitting: таблица значений из данных — скрытое хранение ответов, даже если формально это «факт о данных»; на holdout с другими вопросами она не обобщается | агент каждый раз пересчитывает (больше токенов и tool-вызовов); порог 10 пар — эвристика, мелкие справочники (например, маппинг capture_delay) проходят |
 | Reflector не видит значений gold-ответов, только верно/неверно (+ направление для чисел) | снижает риск зашивания ответов | ему сложнее найти причину ошибки |
 | Гейт: `confirmed_wins − losses ≥ T` (T из шума двух прогонов v000) ∧ 0 регрессий easy ∧ cost ≤ 1.3× родителя | 91 задача → 1 задача = 1.1 п.п.; прирост нельзя «купить» дорогой моделью | часть реальных улучшений будет отклонена; повторы flipped-задач и второй baseline стоят денег |
-| Proposal = content XOR routing; routing только `{model, thinking}` | прирост атрибутируется одному типу изменения | больше поколений на комбинированные улучшения |
+| Proposal = content XOR routing; routing только `{model, thinking, max_turn_s ∈ [120, 300]}`; `max_turn_s` — только вместе с cost-guard гейта (решение после baseline: 9 из 91 задач val упирались в 180 с) | прирост атрибутируется одному типу изменения | больше поколений на комбинированные улучшения |
 | Train делится на improve (≈150) и report-holdout (≈36) | независимая проверка «держится ли прирост» вне val, по которому отбираем | improver видит меньше провалов |
 | v000 содержит человеческий «domain primer» (данные важнее readme, `[]` = `null` = любое, fraud = fraud_vol / total_vol, маппинг capture_delay) | ответы на ваши вопросы 7; не тратим бюджет improver на очевидное | меньше «места» для демонстрации self-improvement |
 | Версии в git (`versions/`), рантайм-состояние в SQLite (volume) | frozen best и история едут с клоном | метрики дублируются в `metrics.json` и БД |
