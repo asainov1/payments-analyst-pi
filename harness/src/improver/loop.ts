@@ -68,6 +68,12 @@ export function assertRunsInDb(db: Db, ids: string[], version: string): void {
   if (missing.length) throw new RunFailed(`val runs of ${version} not in this state DB: ${missing.join(", ")} — copy the state DB that produced them or run from it`);
 }
 
+/** Smallest spend a generation can make before anything is stored (reflection + SMOKE). */
+export const MIN_GENERATION_USD = 1;
+export function canStartGeneration(remainingUsd: number): boolean {
+  return remainingUsd >= MIN_GENERATION_USD;
+}
+
 /** VALIDATE starts only if the remaining improve budget covers K val runs at the parent's cost ×1.3. */
 export function canAffordValidation(o: { remainingUsd: number; parentCostPerRunUsd: number; k: number }): boolean {
   return o.remainingUsd >= o.k * o.parentCostPerRunUsd * 1.3;
@@ -231,6 +237,10 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
   for (let gen = 1; gen <= o.generations && consecutiveRejects < 3; gen++) {
     if (pastCutoff(o.noNewGenerationAfter)) {
       progress("time_cutoff", { gen, after: o.noNewGenerationAfter });
+      break;
+    }
+    if (!canStartGeneration(o.budgetUsd - guard.spent())) {
+      progress("stopped_budget", { gen, message: `remaining $${(o.budgetUsd - guard.spent()).toFixed(2)} < $${MIN_GENERATION_USD} for a generation` });
       break;
     }
     const tag = `${o.improveRunId}-g${gen}`;

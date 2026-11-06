@@ -29,7 +29,8 @@ describe("time cut-off", () => {
 describe("interrupted runs", () => {
   test("versions left as candidate become rejected (interrupted); BEST is written atomically", () => {
     const repo = mkdtempSync(join(tmpdir(), "intr-"));
-    cpSync(join(ROOT, "versions"), join(repo, "versions"), { recursive: true });
+    cpSync(join(ROOT, "versions", "v000"), join(repo, "versions", "v000"), { recursive: true });
+    writeFileSync(join(repo, "versions", "BEST"), "v000\n");
     cpSync(join(repo, "versions", "v000"), join(repo, "versions", "v001"), { recursive: true });
     const mp = join(repo, "versions", "v001", "manifest.json");
     writeFileSync(mp, JSON.stringify({ ...JSON.parse(readFileSync(mp, "utf8")), id: "v001", parent: "v000", status: "candidate" }));
@@ -50,7 +51,8 @@ describe("review fixes before stage 2", () => {
   test("negative memory comes from disk: rejected children of the parent, across restarts", async () => {
     const { rejectedMemory } = await import("../src/improver/loop.ts");
     const repo = mkdtempSync(join(tmpdir(), "mem-"));
-    cpSync(join(ROOT, "versions"), join(repo, "versions"), { recursive: true });
+    // fixture with v000 only — the live versions/ changes while the improver runs
+    cpSync(join(ROOT, "versions", "v000"), join(repo, "versions", "v000"), { recursive: true });
     cpSync(join(repo, "versions", "v000"), join(repo, "versions", "v001"), { recursive: true });
     const mp = join(repo, "versions", "v001", "manifest.json");
     writeFileSync(mp, JSON.stringify({ ...JSON.parse(readFileSync(mp, "utf8")), id: "v001", parent: "v000", status: "rejected", change_summary: "tried X" }));

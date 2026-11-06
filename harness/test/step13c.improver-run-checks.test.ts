@@ -42,3 +42,12 @@ describe("val runs must exist in this state DB", () => {
     expect(() => assertRunsInDb(db, [], "v000")).not.toThrow();
   });
 });
+
+describe("generation start needs a minimum budget", () => {
+  test("remaining < $1 → no generation starts (no reflect, no new version)", async () => {
+    const { canStartGeneration, MIN_GENERATION_USD } = await import("../src/improver/loop.ts");
+    expect(MIN_GENERATION_USD).toBe(1);
+    expect(canStartGeneration(0.01)).toBe(false);
+    expect(canStartGeneration(1.5)).toBe(true);
+  });
+});
