@@ -77,6 +77,7 @@ export function createAnalystSolver(d: AnalystDeps, onTrace?: (taskId: string, t
         db: d.db,
         dataDir: d.dataDir,
         slot,
+        terminateOnSubmit: true,
         python: d.pythonUrl ? { url: d.pythonUrl, session: ref.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 128), version: ctx.version } : undefined,
       }),
       compaction: false,

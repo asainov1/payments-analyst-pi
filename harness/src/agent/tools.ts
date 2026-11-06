@@ -12,6 +12,8 @@ export interface AnalystToolOptions {
   db: DataDb;
   dataDir: string;
   slot: AnswerSlot;
+  /** Batch: an accepted submit_answer ends the turn (no final LLM call). Chat: false — the model writes the answer text. */
+  terminateOnSubmit?: boolean;
   /** py-sandbox; omitted → no python tool. */
   python?: { url: string; session: string; version: string };
 }
@@ -54,7 +56,8 @@ export function analystTools(o: AnalystToolOptions): ToolDefinition[] {
       assumptions: Type.Optional(Type.Array(Type.String(), { description: "Interpretations you chose for ambiguous parts" })),
     }),
     async execute(_id, p) {
-      return textResult(JSON.stringify(o.slot.submit(p)));
+      const r = o.slot.submit(p);
+      return { ...textResult(JSON.stringify(r)), ...(r.ok && o.terminateOnSubmit ? { terminate: true } : {}) };
     },
   });
 

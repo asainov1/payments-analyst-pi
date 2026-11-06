@@ -54,6 +54,21 @@ describe("analyst tools", () => {
   });
 });
 
+describe("submit_answer ends the batch turn", () => {
+  const G = "Answer must be just a number rounded to 2 decimals.";
+  test("batch: accepted answer → terminate (no extra LLM turn); rejected format → keep going", async () => {
+    const tools = analystTools({ db, dataDir: DATA, slot: new AnswerSlot(G), terminateOnSubmit: true });
+    const bad = await run(tools, "submit_answer", { answer: "about 3" });
+    expect(bad.terminate).toBeFalsy();
+    const ok = await run(tools, "submit_answer", { answer: "3.14" });
+    expect(ok.terminate).toBe(true);
+  });
+  test("chat: never terminates — the model still writes the answer text", async () => {
+    const tools = analystTools({ db, dataDir: DATA, slot: new AnswerSlot(G) });
+    expect((await run(tools, "submit_answer", { answer: "3.14" })).terminate).toBeFalsy();
+  });
+});
+
 describe("batch-mode system prompt", () => {
   test("adds the no-clarification / always-submit rules, identical for every task", async () => {
     const v = join(ROOT, "versions", "v000");

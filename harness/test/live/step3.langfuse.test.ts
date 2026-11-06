@@ -105,4 +105,8 @@ test("task trace in Langfuse: agent root, generations with tokens/cache/cost, to
   assert.ok(gens.every((g) => g.latency > 0.1), "generation latency covers the request, not only the stream");
   assert.ok(obs.some((o) => o.type === "TOOL" && o.name === "sql"));
   assert.ok(obs.some((o) => o.type === "TOOL" && o.name === "submit_answer"));
+  // Batch: an accepted submit_answer ends the turn — no LLM call after it.
+  const submitAt = Math.max(...obs.filter((o) => o.name === "submit_answer").map((o) => Date.parse(o.startTime)));
+  assert.ok(gens.every((g) => Date.parse(g.startTime) < submitAt), "no generation after submit_answer");
+  console.log(`LLM calls in this task: ${gens.length}`);
 });
