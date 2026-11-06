@@ -11,6 +11,30 @@ const MIGRATIONS: string[] = [
      cost_usd REAL NOT NULL
    );
    CREATE INDEX ledger_ref ON ledger(ref);`,
+  `CREATE TABLE runs (
+     id TEXT PRIMARY KEY,
+     kind TEXT NOT NULL,
+     version TEXT NOT NULL,
+     tasks_file TEXT NOT NULL,
+     out_path TEXT NOT NULL,
+     status TEXT NOT NULL CHECK (status IN ('queued','running','done','stopped_budget','failed')),
+     scorable INTEGER NOT NULL,
+     summary_json TEXT,
+     error TEXT,
+     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+     finished_at TEXT
+   );
+   CREATE INDEX runs_out ON runs(out_path);
+   CREATE TABLE run_tasks (
+     run_id TEXT NOT NULL REFERENCES runs(id),
+     task_id TEXT NOT NULL,
+     idx INTEGER NOT NULL,
+     status TEXT NOT NULL CHECK (status IN ('pending','running','done','error')),
+     attempts INTEGER NOT NULL DEFAULT 0,
+     answer TEXT,
+     correct INTEGER,
+     PRIMARY KEY (run_id, task_id)
+   );`,
 ];
 
 export type Db = DatabaseSync;
