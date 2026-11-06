@@ -28,6 +28,20 @@ export interface ImproveOptions {
   noNewGenerationAfter?: string;
 }
 
+/** A batch run that did not finish as `done` must never be counted (a failed run would look like 0 correct). */
+export class RunFailed extends Error {}
+
+export function assertRunOk(run: { id: string; status: string; error: string | null }, label: string): void {
+  if (run.status === "done") return;
+  if (run.status === "stopped_budget") throw new BudgetExhausted(`budget reached during ${label}`);
+  throw new RunFailed(`run ${label} (${run.id}) ended as ${run.status}: ${run.error ?? "no error recorded"}`);
+}
+
+/** VALIDATE starts only if the remaining improve budget covers K val runs at the parent's cost ×1.3. */
+export function canAffordValidation(o: { remainingUsd: number; parentCostPerRunUsd: number; k: number }): boolean {
+  return o.remainingUsd >= o.k * o.parentCostPerRunUsd * 1.3;
+}
+
 export function pastCutoff(hhmm: string | undefined, now = new Date()): boolean {
   if (!hhmm) return false;
   const [h, m] = hhmm.split(":").map(Number);
@@ -120,7 +134,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
   const solve = async (label: string, tasks: Task[], version: string) => {
     const runner = new BatchRunner({ db: app.db, solver: app.solver({ guard }), concurrency: 12, ioDir, repoRoot: repo, warmup: true });
     const run = await runner.wait(await runner.startSolve({ tasksFile: writeTasks(label, tasks), version, out: join(ioDir, `${label}.answers.jsonl`) }));
-    if (run.status === "stopped_budget") throw new BudgetExhausted(`improve budget $${o.budgetUsd} reached during ${label}`);
+    assertRunOk(run, label);
     return run;
   };
   const valRunsOf = async (version: string): Promise<string[]> => {
@@ -281,6 +295,15 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
 
       // VALIDATE (early stop after the first run) + GATE
       const parentIds = await parentReady;
+      const pmNow = JSON.parse(readFileSync(join(repo, "versions", parent, "metrics.json"), "utf8")) as { cost_usd: number };
+      const perRun = pmNow.cost_usd / parentIds.length;
+      if (!canAffordValidation({ remainingUsd: o.budgetUsd - guard.spent(), parentCostPerRunUsd: perRun, k: K })) {
+        updateManifest(repo, cand, { status: "rejected", reject_stage: "budget" });
+        updateMetrics(repo, cand, { reject_reason: `not validated: remaining $${(o.budgetUsd - guard.spent()).toFixed(2)} < ${K} × $${perRun.toFixed(2)} × 1.3` });
+        rejected.push(cand);
+        progress("stopped_budget", { gen, version: cand, message: "not enough budget left for validation" });
+        break;
+      }
       const parentMean = parentIds.reduce((s, id) => s + [...correctMap(app.db, id).values()].filter(Boolean).length, 0) / parentIds.length;
       progress("validate", { version: cand, run: 1 });
       const first = await solve(`${o.improveRunId}-${cand}-val-1`, val, cand);

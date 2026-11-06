@@ -24,11 +24,13 @@ export function stratifiedSample(tasks: Array<{ task_id: string; level?: string 
 }
 
 /** Throws BudgetExhausted once ledger spend recorded after this call exceeds `limitUsd`. */
-export function phaseBudgetGuard(db: Db, limitUsd: number): () => void {
+export function phaseBudgetGuard(db: Db, limitUsd: number): (() => void) & { spent: () => number; limitUsd: number } {
   const { maxId } = db.prepare("SELECT COALESCE(MAX(id), 0) AS maxId FROM ledger").get() as { maxId: number };
   const q = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ledger WHERE id > ?");
-  return () => {
-    const { s } = q.get(maxId) as { s: number };
+  const spent = () => (q.get(maxId) as { s: number }).s;
+  const check = () => {
+    const s = spent();
     if (s > limitUsd) throw new BudgetExhausted(`phase budget $${limitUsd} exceeded (spent $${s.toFixed(4)})`);
   };
+  return Object.assign(check, { spent, limitUsd });
 }
