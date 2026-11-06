@@ -18,6 +18,7 @@ import type { Solver } from "../runs/batch.ts";
 import { loadManifest, versionDir } from "../versions/manifest.ts";
 import { BudgetLedger } from "./budget.ts";
 import { Governor } from "./governor.ts";
+import { acquireStateLock } from "./lock.ts";
 
 export interface AppRuntime {
   repoRoot: string;
@@ -45,6 +46,7 @@ export async function createRuntime(o: { repoRoot: string; stateDir?: string; en
   const stateDir = o.stateDir ?? join(o.repoRoot, "state");
   mkdirSync(stateDir, { recursive: true });
   if (!env.LITELLM_BASE_URL || !env.LITELLM_API_KEY) throw new Error("LITELLM_BASE_URL / LITELLM_API_KEY are not set");
+  const releaseLock = acquireStateLock(stateDir);
 
   const db = openDb(join(stateDir, "harness.db"));
   const ledger = new BudgetLedger(db, { capUsd: Number(env.GLOBAL_BUDGET_USD ?? 135) });
@@ -102,6 +104,7 @@ export async function createRuntime(o: { repoRoot: string; stateDir?: string; en
       await tracing?.shutdown();
       await proxy.stop();
       data.close();
+      releaseLock();
     },
   };
 }

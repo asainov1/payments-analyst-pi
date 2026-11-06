@@ -123,7 +123,44 @@ async function main(): Promise<void> {
       console.log(`NOISE ${JSON.stringify(noise)}`);
       return;
     }
-    throw new Error("usage: baseline.ts pick | full <model>");
+    if (phase === "check") {
+      // Rule fixed before the run: keep Haiku if its improve-train accuracy is at most 5 pp below
+      // Sonnet's AND it is cheaper per correct answer; otherwise switch v000 to Sonnet and re-run val ×2.
+      const full = JSON.parse(readFileSync(join(expDir, "b9-full.json"), "utf8"));
+      const haiku = full.results.find((r: { label: string }) => r.label === "b9-improve-train");
+      if (!haiku) throw new Error("no Haiku improve-train run in b9-full.json");
+      const guard = phaseBudgetGuard(app.db, 10);
+      const file = writeTasks("b9-improve-train", train.filter((t) => splits.improve.includes(t.task_id)));
+      const sonnet = await runOne("b9-improve-train-sonnet", file, MODELS.sonnet, guard);
+      const h = haiku.metrics as RunMetrics;
+      const s = sonnet.metrics;
+      const gapPp = ((s.accuracy ?? 0) - (h.accuracy ?? 0)) * 100;
+      const keepHaiku = gapPp <= 5 && (h.cost_per_correct_usd ?? Infinity) < (s.cost_per_correct_usd ?? Infinity);
+      const result: Record<string, unknown> = {
+        rule: "keep Haiku if (sonnet_acc - haiku_acc) <= 5 pp AND haiku $/correct < sonnet $/correct; else Sonnet + val x2",
+        haiku: { run_id: haiku.run_id, metrics: h },
+        sonnet: { run_id: sonnet.run_id, status: sonnet.status, metrics: s },
+        gap_pp: gapPp,
+        chosen: keepHaiku ? MODELS.haiku : MODELS.sonnet,
+      };
+      console.table({ haiku: fmt(h), sonnet: fmt(s) });
+      console.log(`gap ${gapPp.toFixed(1)} pp → CHOSEN ${result.chosen}`);
+      if (!keepHaiku && sonnet.status === "done") {
+        const v1 = await runOne("b9-val-1-sonnet", writeTasks("b9-val", val), MODELS.sonnet, guard);
+        const v2 = await runOne("b9-val-2-sonnet", writeTasks("b9-val", val), MODELS.sonnet, guard);
+        const correctOf = (runId: string) =>
+          new Map((app.db.prepare("SELECT task_id, correct FROM run_tasks WHERE run_id = ?").all(runId) as Array<{ task_id: string; correct: number }>).map((r) => [r.task_id, r.correct]));
+        const [a, b] = [correctOf(v1.run_id), correctOf(v2.run_id)];
+        const c1 = v1.metrics.correct ?? 0;
+        const c2 = v2.metrics.correct ?? 0;
+        result.val = [v1, v2];
+        result.noise = { c1, c2, flips: [...a.keys()].filter((k) => a.get(k) !== b.get(k)).length, T: Math.max(2, Math.abs(c1 - c2) + 1) };
+        console.log(`NOISE ${JSON.stringify(result.noise)}`);
+      }
+      writeFileSync(join(expDir, "b9-check.json"), `${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+    throw new Error("usage: baseline.ts pick | full <model> | check");
   } finally {
     await app.close();
   }
