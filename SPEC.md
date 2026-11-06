@@ -13,7 +13,7 @@
 
 | # | Критерий | Проверка |
 |---|---|---|
-| A1 | `git clone && cp .env.example .env && docker compose up` поднимает UI, API, MCP и Langfuse без ручных шагов | чистый клон в `/tmp`, `curl :8080/api/health` → 200, `curl :3000` (Langfuse) → 200 |
+| A1 | `git clone && cp .env.example .env && docker compose up` поднимает UI, API и Langfuse без ручных шагов (MCP — cut) | чистый клон в `/tmp`, `curl :8080/api/health` → 200, `curl :3000` (Langfuse) → 200 |
 | A2 | `harness solve --tasks /io/<file>.jsonl --version best --out /io/answers.jsonl` (хостовая `./io` смонтирована в `/io`) пишет по строке на каждую задачу; если в задачах нет `answer` (holdout), скоринг пропускается без ошибки | val: `python scorer/score.py --tasks tasks/val.jsonl --answers io/answers.jsonl` → `missing: 0`; файл без `answer` → `solve` завершается `done`, `answers.jsonl` полный |
 | A3 | `docker compose restart harness` посреди solve, повторный `solve` с тем же `--out` доделывает только оставшиеся задачи; задачи в `running` возвращаются в `pending`, оборванная последняя строка `answers.jsonl` отбрасывается | число **задач**, обработанных во втором запуске, = число не-`done` на момент рестарта |
 | A4 | `harness improve --generations N --budget-usd X` создаёт версии; **≥ 2 промоушена** гейтом на val; отклонённые версии тоже сохранены | `harness report`: v000 `baseline` + ≥ 2 версии `promoted` + ≥ 1 `rejected` |
@@ -25,7 +25,7 @@
 | A10 | Глобальный кап $135 (+ $15 резерв под holdout вне капа) и per-turn / per-task лимиты реально останавливают работу | тест с `GLOBAL_BUDGET_USD=0.01` → 402 / run `stopped_budget` |
 | A11 | 👍/👎 сохраняются и попадают во вход improver | `harness improve` логирует `feedback_items: N` |
 | A12 | Version selector: чат с любой версией; rollback = смена `best` | UI + `POST /api/versions/:id/promote` |
-| A13 | (Extra) MCP: ask (multi-turn по `session_id`, выбор версии), trace URL + cost, feedback; одна строка подключения для Claude Code / Codex | `claude mcp add --transport http payments http://localhost:8080/mcp` → вызов `ask` |
+| A13 | ~~(Extra) MCP~~ — **cut** (решение 14:30: improver к 16:00 важнее; API, которое MCP оборачивал бы, есть) | — |
 | A14 | Improver не трогает `data/`, `tasks/`, `scorer/`, не хранит ответы задач; инструменты агента не видят `tasks/` / `scorer/`; у python-sandbox нет egress | `sha256sum -c` по scorer; leak-check тест; vitest «tool не читает val.jsonl» (`sql`: `read_json_auto('…/val.jsonl')` → ошибка; `python`: `open('/bundle/tasks/val.jsonl')` → `FileNotFoundError`); `python`: `urllib.urlopen('https://example.com')` и `subprocess curl` → ошибка сети |
 
 ---
@@ -39,19 +39,17 @@ flowchart LR
   subgraph Clients
     UI[Web UI<br/>Vite+React]
     CLI[harness CLI<br/>thin client]
-    MCPC[Claude Code / Codex]
   end
 
   subgraph harness["harness (Node/TS, :8080)"]
     API[REST + SSE API]
-    MCP[MCP Streamable HTTP /mcp]
     SM[Session manager<br/>Pi AgentSession per chat]
     BR[Batch runner<br/>queue + resume]
     IMP[Improver loop]
     GOV[Governor<br/>rate limiter · retry · budget ledger]
     TR[Tracer<br/>Pi events → Langfuse]
     VS[Version store<br/>versions/vNNN]
-    TOOLS[Tools: sql · python · read_manual · read_skill<br/>submit_answer · ask_user]
+    TOOLS[Tools: sql · python · read_manual<br/>submit_answer · ask_user]
   end
 
   subgraph sbx["py-sandbox (internal network, no egress)"]
@@ -68,9 +66,7 @@ flowchart LR
 
   UI -- SSE --> API
   CLI --> API
-  MCPC --> MCP
   API --> SM & BR & IMP
-  MCP --> SM
   BR --> SM
   IMP --> BR
   IMP --> VS
@@ -213,8 +209,10 @@ running ──global budget exhausted───────▶ aborted
 ### 3.4 Improver: состояния поколения
 
 ```
-ANALYZE  ─ родитель: провалы на последнем прогоне train-`improve`-сплита (+ непотреблённые 👎), кластеризация по типу ошибки (format / wrong-filter / wrong-formula / NA-misuse / timeout).
-           Приоритет выборки — критерий предметной области, НЕ состав val: hard-задачи про комиссии (все форматы) + успешные, но долгие (> 60 с) траектории
+ANALYZE  ─ (как реализовано) весь improve-сплит (148) + второй прогон его hard-части, один раз на родителя (кэш в metrics.json до промоута);
+           нестабильные задачи (прогоны расходятся) — первыми; + непотреблённые 👎; + runtime-телеметрия родителя (timeouts / > 60 с / p95, без correctness).
+           Каждому провалу — детерминированная метка по признакам трейса (labels.ts): timeout · invalid_format · not_applicable · numeric_high / numeric_low · other;
+           reflector получает провалы кластерами со счётчиками, «fix the largest cluster with one general rule» (внедрено после старта этапа 2)
 PROPOSE  ─ reflector (**Opus** `claude-opus-5-5`, Pi-сессия через Tracer) получает: текущие system/playbook/skills, ≤ 8 компактных трейсов провалов (вопрос, guidelines, шаги, ответ, «неверно»).
            Gold-ответ показываем ТОЛЬКО как «верно/неверно» + для чисел направление ошибки — значение не отдаём  → Proposal JSON
            (content XOR routing; routing — только allow-list {model, thinking, max_turn_s}, thinking ∈ enum Pi SDK, max_turn_s ∈ [120, 300])
@@ -237,7 +235,7 @@ GATE     ─ promote ⇔ (mean_k(cand) − mean_k(parent) ≥ T_k) ∧ (confirme
            mean_k — среднее число верных по k = 3 прогонам val; задача «верна» у стороны, если верна в большинстве (≥ 2 из 3) её прогонов;
            confirmed_wins / losses — задачи, где большинство кандидата и большинство родителя расходятся (большинство из 3 = подтверждение);
            easy_regressions — easy-задачи, верные по большинству у родителя и неверные у кандидата;
-           T_k = max(2, ⌈2 · σ_run · √(2/k)⌉), σ_run = √(F̄ / 2), F̄ — среднее число «перевернувшихся» задач между парами прогонов v000 (baseline: F = 17 → σ_run ≈ 2.9, T₃ = 5);
+           T_k = max(2, ⌈2 · σ_run · √(2/k)⌉), σ_run = √(F̄ / 2), F̄ — среднее число «перевернувшихся» задач между парами прогонов v000 (Haiku-baseline: F = 17 → T₃ = 5; **Sonnet-v000: F = 6 → σ_run ≈ 1.7 → T₃ = 3**, заморожен в config/gate.json);
            пишется в config/gate.json и REPORT
 PROMOTE  ─ status=promoted, BEST=vNNN, свежий train-sample(60) для следующего ANALYZE
 REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, val=null если до VALIDATE); ops и причина → «негативная память» reflector'а (не повторять).
@@ -245,7 +243,7 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 Выход: generations исчерпаны ∨ budget_usd исчерпан ∨ 3 rejected подряд ∨ глобальный кап
 ```
 
-**Generator** (кто и как гоняет аналитика для ANALYZE: модель, число прогонов на задачу, размер выборки) — решается по результату шага 9 (baseline: $/task, разброс между прогонами).
+**Generator** (решено по шагу 9): аналитик родителя (v000 — Sonnet) гоняет весь improve-сплит + повтор hard-части; модель аналитика меняет только routing-кандидат.
 
 ---
 
@@ -293,7 +291,7 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 
 **Статика UI:** `GET /` и прочие не-`/api` пути отдаются из `web/dist` (Fastify static), если сборка есть; SPA-роутинг через `#/…`, fallback не нужен.
 
-### 4.3 MCP (Streamable HTTP `/mcp` + stdio `harness mcp`)
+### 4.3 ~~MCP (Streamable HTTP `/mcp` + stdio `harness mcp`)~~ — cut (см. §8); контракт ниже не реализован
 
 | Tool | Вход | Выход |
 |---|---|---|
@@ -310,7 +308,7 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 | `sql` | `{ query: string }` → DuckDB in-process. На старте данные из `data/` грузятся в **таблицы**, затем `SET enable_external_access=false; SET lock_configuration=true` — `read_csv/read_json/COPY/ATTACH` к любым файлам невозможны. Таблицы: `payments`, `fees` (списки как `LIST`), `merchants`, `mcc`, `acquirer_countries`, хелпер-view `payments_m` с `month` из `day_of_year`. Результат: ≤ 200 строк в markdown + `row_count`; таймаут 20 с |
 | `python` | `{ code: string }` → HTTP-вызов в сервис **`py-sandbox`** (§4.5): `python3` в `/work/<session>` (tmpfs), смонтированы только `data/` (ro) и `skills/` текущей версии (ro); pandas + duckdb; таймаут 60 с; stdout/stderr ≤ 8 KB. Сети нет на уровне docker (internal network) |
 | `read_manual` | `{ section?: string, grep?: string }` → фрагмент `manual.md` (весь мануал в промпте сжат; полный текст по запросу) |
-| `read_skill` | `{ name: string }` → `SKILL.md` из `versions/<v>/skills/<name>/` (только этот каталог). Встроенные Pi `read` / `bash` / `write` / `edit` **отключены** |
+| skills | (как реализовано) `SKILL.md` всех skills версии встраиваются в system prompt (раздел «Skills», часть стабильного префикса); helper-файлы доступны в `python`-песочнице как `skills/<name>/…`. Отдельного `read_skill` нет. Встроенные Pi `read` / `bash` / `write` / `edit` **отключены** |
 | `submit_answer` | `{ answer: string, assumptions?: string[] }` → `{ ok }` или ошибка `{ reason, expected_format }` |
 | `ask_user` | `{ question: string, options?: string[] }` → завершает ход (только chat / mcp) |
 
@@ -330,6 +328,12 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 - **Песочница `py-sandbox`** (отдельный compose-сервис): только сеть `sandbox` с `internal: true` (нет egress; harness подключён к ней и к default), `read_only: true` + tmpfs `/work`, `user: "65534:65534"`, `mem_limit: 1g`, `pids_limit: 128`, `cpus: 1`, `cap_drop: [ALL]`, `no-new-privileges`. Mounts: `bundle/data:ro`, `versions:ro`. **Нет** `tasks/`, `scorer/`, `state/`, `.env`. Минимальный exec-сервер (POST `/exec {code, session, version}` → `{stdout, stderr, exit, ms}`).
 - **harness:** `bundle/data`, `bundle/tasks`, `bundle/scorer` `:ro`; `./io:/io` (rw); egress нужен только на LiteLLM и Langfuse (внутри compose). Сетевой allow-list для самого harness не ставим (§7).
 - **Скорер:** только как subprocess; при старте проверяем `sha256(scorer/score.py) == scorer/SHA256`, иначе отказ.
+
+### 4.6 UI (`web/`, Vite + React, раздаётся сервисом с `:8080`)
+
+- **Chat** (`#/chat`): выбор версии (новая сессия на версию); стрим шагов — вызовы tools с аргументами и превью результата, стрим текста; структурированный ответ и допущения; уточняющий вопрос с вариантами; по каждому ходу — outcome, стоимость, cache hit, латентность, число LLM- и tool-вызовов, ссылка на трейс Langfuse; 👍/👎 (👎 просит комментарий — он уходит improver'у); Stop (abort хода).
+- **Improvements** (`#/improvements`): таблица версий — val (среднее и 3 прогона), easy / hard, $/задача, cache hit, p50/p95, что изменилось, модель / thinking, числа гейта или reject_reason; diff к родителю; Serve = promote / rollback; запуск improve с числом поколений и бюджетом, прогресс по SSE; обновляется каждые 15 с.
+- Работает только через API §4.1–§4.2 (`web/src/api.ts`); mock-сервер для разработки без LLM — `web/mock/`.
 
 ---
 
@@ -385,17 +389,17 @@ zimran-task/
 | 5 ✅ | **`validate` + `submit_answer`** | vitest: валидатор принимает **все** gold-ответы train+val в их guidelines (277/277, включая 3 пустых `''`) и отвергает 12 заведомо кривых. Факт: для «rounded to N decimals» gold иногда короче (`-10.48` при N=14) → правило «≤ N знаков» |
 | 6 ✅² | **Governor:** семафор, token bucket (RPM/TPM из шага 1, адаптивное снижение на 429), retry, ledger, per-turn и per-task лимиты | vitest с fake-LLM: 429 → ретрай; кап $0.01 → `budget_exhausted`; лимит tool_calls → `limit_exceeded`; per-task $ превышен → задача `error` |
 | 7 ✅³ | **Batch runner + `harness solve`** (CLI → API), `/io`-mount, resume, пропуск скоринга без `answer`, `config/splits.json` | `solve` на 10 train → скорер; A3 (restart посередине); файл без `answer` → `done` |
-| 8 ✅⁶ | **`py-sandbox`** (internal network, ro, uid 65534, mem/pids limits) + tool `python` + `read_skill` | `python` считает то же, что `sql`, на 1 задаче; A14: `open(val.jsonl)` → `FileNotFoundError`, `urllib` / `subprocess curl` → ошибка сети |
-| 9 | **Baseline v000 (фон):** **прогрев кэша перед fan-out (з):** в каждом batch сначала 1 задача (пишет префикс), потом параллель — иначе N первых запросов платят запись 1.25×; выбор модели на 20 improve-train (Haiku vs Sonnet), затем **2× val**, improve-train, report-holdout. Метрики пишутся в БД (run-уровень); `metrics.json` материализуется в шаге 10 | в БД есть 4 run'а v000; посчитан порог `T` (§3.4) и $/task |
+| 8 ✅⁶ | **`py-sandbox`** (internal network, ro, uid 65534, mem/pids limits) + tool `python` (skills — в system prompt + `skills/` в песочнице) | `python` считает то же, что `sql`, на 1 задаче; A14: `open(val.jsonl)` → `FileNotFoundError`, `urllib` / `subprocess curl` → ошибка сети |
+| 9 ✅ | **Baseline v000 (фон):** **прогрев кэша перед fan-out (з):** в каждом batch сначала 1 задача (пишет префикс), потом параллель — иначе N первых запросов платят запись 1.25×; выбор модели на 20 improve-train (Haiku vs Sonnet), затем **2× val**, improve-train, report-holdout. Метрики пишутся в БД (run-уровень); `metrics.json` материализуется в шаге 10 | в БД есть 4 run'а v000; посчитан порог `T` (§3.4) и $/task |
 | 14 ✅⁷ | **API сессий + SSE**, multi-turn, `ask_user` | `curl -N` показывает поток событий; follow-up использует контекст |
 | 15 ✅ | **UI Chat (тонкий):** стрим шагов, cost / cache / trace-ссылка, 👍/👎, version selector | ручной сценарий A6 / A7 |
-| 10 | **Version store + `harness report`** (`metrics.json` из БД, `diff.patch`, bind-mount `./versions`; rejected-версии тоже в git) | `report` печатает таблицу с v000; `diff.patch` генерируется |
-| 11 | **Improver: analyze → propose → curate → leakcheck** (reflector — Pi-сессия через Tracer; content XOR routing; allow-list; v000 переводится на `playbook.json`) | валидный Proposal на провалах v000; curator-тесты (без LLM): ops по rule_id, merge, дедуп, `over_limit` (41-е правило), `growth_under_pressure` (родитель 32 правила, +1 → reject; merge 2→1 → pass), рендер детерминирован; отклонённый кандидат сохранён версией с diff / причиной / `reflect_cost_usd`, `val = null`; leak-тесты: gold-литерал → reject + `[REDACTED]` в diff, `GlobalCard`/`Not Applicable` в правиле → pass, путь `tasks/` → reject; skill с dict-литералом из 11 пар `'merchant': число` → reject, из 10 → pass, вычисляющий SQL-шаблон → pass; промпт reflector'а содержит запрет хардкода; reflect-трейс виден в Langfuse |
-| 12 | **Improver: smoke → validate → gate → promote/reject** (T из шага 9, confirmed_wins, cost-guard ×1.3) | 1 поколение end-to-end, `GateDecision` записан в metrics |
-| 13 | **Прогон improve (фон, бюджет ≤ $60)**, пока идут шаги 16–18 | ≥ 2 `promoted` |
+| 10 ✅ | **Version store + `harness report`** (`metrics.json` из БД, `diff.patch`, bind-mount `./versions`; rejected-версии тоже в git) | `report` печатает таблицу с v000; `diff.patch` генерируется |
+| 11 ✅ | **Improver: analyze → propose → curate → leakcheck** (reflector — Pi-сессия через Tracer; content XOR routing; allow-list; v000 переводится на `playbook.json`) | валидный Proposal на провалах v000; curator-тесты (без LLM): ops по rule_id, merge, дедуп, `over_limit` (41-е правило), `growth_under_pressure` (родитель 32 правила, +1 → reject; merge 2→1 → pass), рендер детерминирован; отклонённый кандидат сохранён версией с diff / причиной / `reflect_cost_usd`, `val = null`; leak-тесты: gold-литерал → reject + `[REDACTED]` в diff, `GlobalCard`/`Not Applicable` в правиле → pass, путь `tasks/` → reject; skill с dict-литералом из 11 пар `'merchant': число` → reject, из 10 → pass, вычисляющий SQL-шаблон → pass; промпт reflector'а содержит запрет хардкода; reflect-трейс виден в Langfuse |
+| 12 ✅ | **Improver: smoke → validate → gate → promote/reject** (T из шага 9, confirmed_wins, cost-guard ×1.3) | 1 поколение end-to-end, `GateDecision` записан в metrics |
+| 13 | **Прогон improve (фон)**: этап 1 ($20, 1 поколение), этап 2 ($60, 5 поколений, отсечка 17:15) | ≥ 2 `promoted` |
 | 16 ✅ | **UI Improvements:** таблица версий, дифф, кнопка «improve» с бюджетом, promote/rollback | запуск improve из UI виден в прогрессе |
-| 17 | **👎 → improver** | `improve` логирует `feedback_items > 0`, 👎-ход попадает в ANALYZE |
-| 18 | **MCP** (Streamable HTTP; stdio = прокси к `:8080`, чтобы шёл через общий Governor) | Claude Code и Codex: `ask` → `needs_clarification` → `ask` с session_id → `answered` |
+| 17 ✅ | **👎 → improver** | `improve` логирует `feedback_items > 0`, 👎-ход попадает в ANALYZE |
+| 18 ✂️ cut | **MCP** (Streamable HTTP; stdio = прокси к `:8080`, чтобы шёл через общий Governor) | Claude Code и Codex: `ask` → `needs_clarification` → `ask` с session_id → `answered` |
 | 19 ✅ | **Чистый клон** | `scripts/clean-clone-test.sh` зелёный (A1, A2 включая holdout-файл без `answer`) |
 | 20 | **Финализация deliverables** (§9): заморозка best, report-holdout для best, экспорт Langfuse, README / REPORT | чек-лист §9.3 закрыт |
 
@@ -419,7 +423,7 @@ zimran-task/
 - после каждого промоушена — `git commit` версии (`versions/vNNN` + `BEST`), чтобы история версий была в git, а не только в БД;
 - `scripts/export-langfuse.sh` пишется вместе с шагом 3 и проверяется импортом в чистый volume сразу, а не в последний час.
 
-**Бюджет ($150 ключ; кап наших прогонов $135, $15 — резерв под holdout, пока организаторы не ответят; оценка при ≈ $0.10/task):** шаги 1–8 ≈ $5 · baseline (2×20 + 2×91 + 150 + 36 ≈ 408 задач) ≈ $41 · improve ≈ $60 · report-holdout best + финальный val + демо ≈ $10 · резерв $19. Если шаг 9 покажет > $0.15/task — ANALYZE на improve-train-sample(60) вместо 150 и improve ≤ 3 поколений.
+**Бюджет (факт; ключ $150, кап наших прогонов $135, $15 — жёсткий резерв под holdout):** baseline + проверки модели ≈ $14 · этап 1 improver $3.3 (+ $3.6 моя ошибка) · этап 2 до $60 · финал (report-holdout best, демо) ≈ $5. Sonnet-v000: ≈ $0.039 / задача val, прогон val ≈ $3.6 → полностью провалидированное поколение ≈ $12.5, с ранней остановкой ≈ $6–8. Расход сверяется с заголовком `x-litellm-key-spend` (накопительный расход ключа).
 
 ---
 
@@ -441,7 +445,7 @@ zimran-task/
 | **Можно** (подтверждено организаторами): общие правила и формулы в playbook / skills, хелпер-скрипты, которые вычисляют значения из `data/` во время ответа | ASSIGNMENT §2.2 разрешает «playbook rules, Pi skills / helper scripts» | граница с «предвычисленными фактами» — по строке ниже |
 | **Предвычисленные факты о датасете не храним** (уточнено у организаторов): reflector обязан предлагать только вычисляющий код / правила «как считать», хардкод значений из данных запрещён промптом; leak-check отклоняет skill / правило с литеральной таблицей > 10 пар «имя → число» | граница overfitting: таблица значений из данных — скрытое хранение ответов, даже если формально это «факт о данных»; на holdout с другими вопросами она не обобщается | агент каждый раз пересчитывает (больше токенов и tool-вызовов); порог 10 пар — эвристика, мелкие справочники (например, маппинг capture_delay) проходят |
 | Reflector не видит значений gold-ответов, только верно/неверно (+ направление для чисел) | снижает риск зашивания ответов | ему сложнее найти причину ошибки |
-| **Гейт по среднему из k = 3 прогонов val** для кандидата и родителя: `mean₃(cand) − mean₃(parent) ≥ T₃ = 5`, `confirmed_wins − losses ≥ 1` (по большинству из 3), 0 регрессий easy, cost ≤ 1.3× | шум baseline: 17 из 91 задач меняют исход между двумя одинаковыми прогонами (39 vs 42 верных) — одиночный прогон не отличает улучшение от шума | ≈ $1.2 на поколение (3 × val на Haiku); T₃ = 5 задач (≈ 5.5 п.п.) — часть реальных улучшений меньше порога будет отклонена |
+| **Гейт по среднему из k = 3 прогонов val** для кандидата и родителя: `mean₃(cand) − mean₃(parent) ≥ T₃` (Sonnet-v000: T₃ = 3), `confirmed_wins − losses ≥ 1` (по большинству из 3), 0 регрессий easy, cost ≤ 1.3× | шум: у Haiku-v000 17 из 91 задач меняют исход между одинаковыми прогонами (39 vs 42), у Sonnet-v000 — 6 (67 vs 67); одиночный прогон не отличает улучшение от шума | ≈ $12.5 на полностью провалидированное поколение (3 × val на Sonnet, ≈ $3.6 каждый); T₃ = 3 задачи (≈ 3.3 п.п.) — улучшения меньше порога будут отклонены |
 | Proposal = content XOR routing; routing только `{model, thinking, max_turn_s ∈ [120, 300]}`; `max_turn_s` — только вместе с cost-guard гейта (решение после baseline: 9 из 91 задач val упирались в 180 с) | прирост атрибутируется одному типу изменения | больше поколений на комбинированные улучшения |
 | Train делится на improve (≈150) и report-holdout (≈36) | независимая проверка «держится ли прирост» вне val, по которому отбираем | improver видит меньше провалов |
 | v000 содержит человеческий «domain primer» (данные важнее readme, `[]` = `null` = любое, fraud = fraud_vol / total_vol, маппинг capture_delay) | ответы на ваши вопросы 7; не тратим бюджет improver на очевидное | меньше «места» для демонстрации self-improvement |
@@ -499,7 +503,7 @@ zimran-task/
 | # | Deliverable | Как получается | Когда начинаем | Проверка |
 |---|---|---|---|---|
 | D1 | **Git repo**, `docker compose up` из чистого клона | `bundle/` (данные, задачи, скорер) в репо, `.env.example`, compose со всеми сервисами; без локальных путей и ручных шагов | шаг 3 (compose), финал — шаг 19 | `scripts/clean-clone-test.sh`: `git clone` во временную папку → `cp .env.example .env` + ключ → `up -d` → health → `solve` на 3 задачах |
-| D2 | **README.md** | Архитектура (mermaid из §2), как запустить (compose, CLI в контейнере, MCP one-liners для Claude Code / Codex), решения и компромиссы (из §7), «что бы сделал за ещё неделю» | скелет после шага 3, дополняется на каждом шаге | все команды из README выполнены в clean-clone-test |
+| D2 | **README.md** | Архитектура (mermaid из §2), как запустить (compose, CLI в контейнере; MCP — cut), решения и компромиссы (из §7), «что бы сделал за ещё неделю» | скелет после шага 3, дополняется на каждом шаге | все команды из README выполнены в clean-clone-test |
 | D3 | **REPORT.md** | Автогенерация `harness report --md`: per-version val (по уровням), cost, $/task, cache hit rate, p50/p95, change_summary, gate decision, promoted / rejected, total spend (ledger + сверка с LiteLLM `/key/info`). Руками: «что не сработало», оценка шума | с шага 9 (baseline) | цифры в REPORT совпадают с `/api/report` и Langfuse |
 | D4 | **Frozen `best`** | `versions/BEST` + каталог версии в git, тег `best-frozen`; `manifest.json` фиксирует модели / thinking / лимиты; `harness solve --tasks /io/holdout.jsonl --version best --out /io/answers.jsonl` читает версию только из репо; holdout кладут в `./io/` | после последнего промоушена | `git checkout best-frozen && solve` на val даёт тот же score ± T; файл без `answer` отрабатывает |
 | D5 | **Langfuse data** | `scripts/export-langfuse.sh`: `pg_dump` (Postgres) + `clickhouse-backup` / `BACKUP TABLE … TO File` (ClickHouse) + `mc mirror` (MinIO) → `langfuse-export.tar.zst` (+ `import-langfuse.sh`). Дополнительно JSON-экспорт трейсов отчётных run'ов через публичный API Langfuse (запасной вариант, если volume не поднимется) | шаг 3 (скрипт и проверка импорта) | импорт в чистый compose → трейсы отчётных run'ов открываются по `trace_url` из REPORT |
@@ -522,9 +526,9 @@ zimran-task/
 - [ ] `clean-clone-test.sh` зелёный на свежем клоне
 - [ ] `versions/BEST` указывает на финальную версию, тег `best-frozen` стоит
 - [ ] `sha256` скорера совпадает, `bundle/` не изменён (`git diff --stat bundle/` пуст)
-- [ ] в репо нет `.env` и ключа (`git grep sk-` пуст)
+- [ ] в репо нет `.env` и ключа: `git grep -F "$(grep LITELLM_API_KEY .env | cut -d= -f2)"` пуст (просто `git grep sk-` даёт ложные срабатывания на `sk-lf-local` Langfuse)
 - [ ] REPORT.md: таблица версий, total spend, шум, «что не сработало», уверенность
-- [ ] README.md: диаграмма, запуск, MCP one-liners, решения, «ещё неделя»
+- [ ] README.md: диаграмма, запуск, решения, «ещё неделя», MCP — cut
 - [ ] `langfuse-export.tar.zst` проверен импортом; ссылка или файл приложен
 - [ ] **все фоновые прогоны (improve, solve, эксперименты) остановлены** — `docker compose ps`, `ps aux | grep harness` пусто
 - [ ] **остаток ключа по `x-litellm-key-spend` (заголовок ответа LiteLLM) ≥ $15 (holdout) + ~$3 (демо)**; `/key/info` для нашего ключа отдаёт `spend 0` — не годится
