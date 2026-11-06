@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, streamTurn, type Usage, type VersionRow } from "../api.ts";
 
-type Step = { call_id: string; tool: string; args: unknown; ok?: boolean; preview?: string; ms?: number };
+type Step = { call_id: string; tool: string; args: unknown; ok?: boolean; preview?: string; ms?: number; cancelled?: boolean };
 
 /** Text and tool calls in arrival order: the agent's reasoning interleaves with its tool use. */
 type Item = { kind: "text"; text: string } | { kind: "step"; step: Step };
@@ -85,7 +85,12 @@ export function Chat() {
       update(key, (t) => ({ ...t, error: msg }));
     } finally {
       abortRef.current = null;
-      update(key, (t) => ({ ...t, running: false }));
+      // A step without tool.end will never finish (stop, error, dropped stream): mark it, don't leave "running…".
+      update(key, (t) => ({
+        ...t,
+        running: false,
+        items: t.items.map((it) => (it.kind === "step" && it.step.ok === undefined ? { kind: "step", step: { ...it.step, cancelled: true } } : it)),
+      }));
     }
   }
 
@@ -138,7 +143,7 @@ export function Chat() {
                 ) : (
                   <details className="step" key={it.step.call_id}>
                     <summary>
-                      🔧 <code>{it.step.tool}</code> {it.step.ok === undefined ? "running…" : it.step.ok ? `ok · ${it.step.ms} ms` : `failed · ${it.step.ms} ms`}
+                      🔧 <code>{it.step.tool}</code> {it.step.cancelled ? "cancelled" : it.step.ok === undefined ? "running…" : it.step.ok ? `ok · ${it.step.ms} ms` : `failed · ${it.step.ms} ms`}
                     </summary>
                     <pre>{JSON.stringify(it.step.args, null, 2)}</pre>
                     {it.step.preview && <pre>{it.step.preview}</pre>}
