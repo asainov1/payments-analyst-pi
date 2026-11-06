@@ -279,11 +279,12 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 | `tool.end` | `{ call_id, tool, ok, preview (≤ 2 KB), ms }` |
 | `llm.usage` | `{ model, input, output, cache_read, cache_write, cost_usd, ms }` (на каждый LLM-вызов) |
 | `clarification` | `{ question, options? }` |
-| `answer` | `{ answer, assumptions[], format, valid }` |
-| `turn.end` | `{ outcome, usage: Usage, cache_hit_rate, latency_ms, trace_url }` |
+| `answer` | `{ answer, assumptions[], format, valid }` — только если ход вызвал `submit_answer` (batch); в чате ответ = текст из `text.delta`, он же `Turn.answer` |
+| `turn.end` | `{ turn_id, outcome, usage: Usage, cache_hit_rate, latency_ms, trace_url }` (`turn_id` добавлен в шаге 14 — совместимо) |
 | `error` | `{ code, message }` |
 
 Порядок гарантирован: `turn.start` → (…)* → `turn.end` | `error`. Heartbeat-комментарий каждые 15 с.
+`outcome` в `turn.end`: `answered` | `clarification` (был `ask_user`, перед этим событие `clarification`) | `limit_exceeded` | `aborted` (`POST /abort`) | `error`. `Usage` в `turn.end` и в `Turn.usage` (`GET /api/sessions/:id`): `{ input, output, cache_read, cache_write, cost_usd, llm_calls, tool_calls }`.
 
 ### 4.3 MCP (Streamable HTTP `/mcp` + stdio `harness mcp`)
 

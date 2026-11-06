@@ -10,6 +10,9 @@ Assignment text: `ASSIGNMENT.md` (root `README.md` is our deliverable). Task bun
 - Commit as a separate command, and only after tests and lint are green:
   `npm test` + `npm run lint` in `harness/`, `uvx ruff check .` at the repo root.
 - One commit per SPEC step.
+- Stage only our own paths explicitly (`git add harness/ SPEC.md …`), never `git add -A` / `git add .`;
+  do not switch branches. Another Claude session works on `web/` in parallel — do not touch `web/`.
+- The API contract for `web/` is SPEC §4.1–§4.2: any change to it goes into SPEC first.
 
 ## Tests
 
