@@ -7,6 +7,20 @@ export class BudgetExhausted extends Error {
 }
 
 export type LedgerScope = "chat" | "solve" | "improve" | "mcp" | "probe";
+export const LEDGER_SCOPES: readonly LedgerScope[] = ["chat", "solve", "improve", "mcp", "probe"];
+
+export interface LedgerRecord {
+  scope: LedgerScope;
+  ref: string;
+  costUsd: number;
+  model?: string;
+  usage?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  costSource?: "header" | "usage";
+  providerCostUsd?: number | null;
+  aborted?: boolean;
+  estimated?: boolean;
+  ms?: number;
+}
 
 export class BudgetLedger {
   private readonly db: Db;
@@ -20,8 +34,27 @@ export class BudgetLedger {
     return this.opts.capUsd;
   }
 
-  record(e: { scope: LedgerScope; ref: string; costUsd: number }): void {
-    this.db.prepare("INSERT INTO ledger (scope, ref, cost_usd) VALUES (?, ?, ?)").run(e.scope, e.ref, e.costUsd);
+  record(e: LedgerRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO ledger (scope, ref, cost_usd, model, input, output, cache_read, cache_write, cost_source, provider_cost_usd, aborted, estimated, ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        e.scope,
+        e.ref,
+        e.costUsd,
+        e.model ?? null,
+        e.usage?.input ?? null,
+        e.usage?.output ?? null,
+        e.usage?.cacheRead ?? null,
+        e.usage?.cacheWrite ?? null,
+        e.costSource ?? null,
+        e.providerCostUsd ?? null,
+        e.aborted ? 1 : 0,
+        e.estimated ? 1 : 0,
+        e.ms ?? null,
+      );
   }
 
   spentUsd(ref?: string): number {

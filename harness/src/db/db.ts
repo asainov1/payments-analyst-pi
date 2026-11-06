@@ -35,6 +35,17 @@ const MIGRATIONS: string[] = [
      correct INTEGER,
      PRIMARY KEY (run_id, task_id)
    );`,
+  // Per-call LLM accounting from the proxy (SPEC §7: cost_source, aborted/estimated rows).
+  `ALTER TABLE ledger ADD COLUMN model TEXT;
+   ALTER TABLE ledger ADD COLUMN input INTEGER;
+   ALTER TABLE ledger ADD COLUMN output INTEGER;
+   ALTER TABLE ledger ADD COLUMN cache_read INTEGER;
+   ALTER TABLE ledger ADD COLUMN cache_write INTEGER;
+   ALTER TABLE ledger ADD COLUMN cost_source TEXT;
+   ALTER TABLE ledger ADD COLUMN provider_cost_usd REAL;
+   ALTER TABLE ledger ADD COLUMN aborted INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE ledger ADD COLUMN estimated INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE ledger ADD COLUMN ms INTEGER;`,
 ];
 
 export type Db = DatabaseSync;

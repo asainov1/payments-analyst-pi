@@ -53,14 +53,28 @@ export class Governor {
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
 
-  async call<T>(ctx: CallContext, fn: LlmCall<T>): Promise<T> {
+  get ledger(): BudgetLedger {
+    return this.opts.ledger;
+  }
+
+  /** Budget check + a concurrency slot. Caller must invoke the returned release(). */
+  async admit(ctx: Pick<CallContext, "ref" | "budgetUsd">): Promise<() => void> {
     this.opts.ledger.assertCanSpend({ ref: ctx.ref, budgetUsd: ctx.budgetUsd });
-    const release = await this.sem.acquire();
+    return this.sem.acquire();
+  }
+
+  /** Waits for a rate-limit slot for `model` (call once per upstream attempt). */
+  async pace(model: string): Promise<void> {
+    const wait = this.limiter.reserve(model);
+    if (wait > 0) await this.sleep(wait);
+  }
+
+  async call<T>(ctx: CallContext, fn: LlmCall<T>): Promise<T> {
+    const release = await this.admit(ctx);
     try {
       const { value, costUsd } = await withRetry(
         async () => {
-          const wait = this.limiter.reserve(ctx.model);
-          if (wait > 0) await this.sleep(wait);
+          await this.pace(ctx.model);
           try {
             return await fn();
           } catch (e) {

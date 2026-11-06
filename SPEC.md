@@ -346,14 +346,14 @@ zimran-task/
 | # | Шаг (15–30 мин) | Готово, когда… |
 |---|---|---|
 | 1 ✅ | **Пробник LiteLLM:** `/v1/models`, `/v1/messages` для Sonnet/Haiku с `cache_control`, два одинаковых запроса; заголовки rate-limit / cost | на 2-м запросе `cache_read_input_tokens > 0`; записаны цены, `x-ratelimit-*` (→ RPM/TPM Governor) |
-| 2 | **Pi + LiteLLM** через SDK: `models.json`, одна сессия, `customTools` с тестовым tool, подписка на события | скрипт печатает `tool_execution_start/end` и `message.usage.cacheRead > 0` на 2-м ходе |
+| 2 ✅⁴ | **Pi + LiteLLM** через SDK: `models.json`, одна сессия, `customTools` с тестовым tool, подписка на события | скрипт печатает `tool_execution_start/end` и `message.usage.cacheRead > 0` на 2-м ходе |
 | 3 | **Langfuse в compose** + Tracer на событиях Pi. **Time-box 40 мин** на v3 (web+worker+pg+clickhouse+redis+minio); не взлетел → fallback **Langfuse v2 + Postgres** (тот же JS SDK, тот же Tracer) | `docker compose up` → трейс с generation (tokens / cost / cacheRead) и tool-span виден в UI Langfuse |
 | 4 ✅¹ | **Tools `sql` + `read_manual`**, DuckDB-таблицы + `enable_external_access=false`, промпт v000 (manual + схема); BR отдаёт агенту только question + guidelines | 3 easy train-задачи верно через `harness-dev ask`; vitest: `sql` с `read_json_auto('…/val.jsonl')` → ошибка |
 | 5 ✅ | **`validate` + `submit_answer`** | vitest: валидатор принимает **все** gold-ответы train+val в их guidelines (277/277, включая 3 пустых `''`) и отвергает 12 заведомо кривых. Факт: для «rounded to N decimals» gold иногда короче (`-10.48` при N=14) → правило «≤ N знаков» |
 | 6 ✅² | **Governor:** семафор, token bucket (RPM/TPM из шага 1, адаптивное снижение на 429), retry, ledger, per-turn и per-task лимиты | vitest с fake-LLM: 429 → ретрай; кап $0.01 → `budget_exhausted`; лимит tool_calls → `limit_exceeded`; per-task $ превышен → задача `error` |
 | 7 ✅³ | **Batch runner + `harness solve`** (CLI → API), `/io`-mount, resume, пропуск скоринга без `answer`, `config/splits.json` | `solve` на 10 train → скорер; A3 (restart посередине); файл без `answer` → `done` |
 | 8 | **`py-sandbox`** (internal network, ro, uid 65534, mem/pids limits) + tool `python` + `read_skill` | `python` считает то же, что `sql`, на 1 задаче; A14: `open(val.jsonl)` → `FileNotFoundError`, `urllib` / `subprocess curl` → ошибка сети |
-| 9 | **Baseline v000 (фон):** выбор модели на 20 improve-train (Haiku vs Sonnet), затем **2× val**, improve-train, report-holdout. Метрики пишутся в БД (run-уровень); `metrics.json` материализуется в шаге 10 | в БД есть 4 run'а v000; посчитан порог `T` (§3.4) и $/task |
+| 9 | **Baseline v000 (фон):** **прогрев кэша перед fan-out (з):** в каждом batch сначала 1 задача (пишет префикс), потом параллель — иначе N первых запросов платят запись 1.25×; выбор модели на 20 improve-train (Haiku vs Sonnet), затем **2× val**, improve-train, report-holdout. Метрики пишутся в БД (run-уровень); `metrics.json` материализуется в шаге 10 | в БД есть 4 run'а v000; посчитан порог `T` (§3.4) и $/task |
 | 14 | **API сессий + SSE**, multi-turn, `ask_user` | `curl -N` показывает поток событий; follow-up использует контекст |
 | 15 | **UI Chat (тонкий):** стрим шагов, cost / cache / trace-ссылка, 👍/👎, version selector | ручной сценарий A6 / A7 |
 | 10 | **Version store + `harness report`** (`metrics.json` из БД, `diff.patch`, bind-mount `./versions`; rejected-версии тоже в git) | `report` печатает таблицу с v000; `diff.patch` генерируется |
@@ -369,6 +369,8 @@ zimran-task/
 ² Governor готов как библиотека (`Governor.call`). Точка подключения к Pi (Pi сам делает HTTP-запросы) решается в шаге 2: хук Pi перед запросом или локальный governor-прокси между Pi и LiteLLM (бонус: точная стоимость из `x-litellm-response-cost`).
 
 ³ С fake-solver'ом; реальный агент подключается как `Solver` после шага 2. Сплит по факту: improve 148 / report-holdout 38 (`ceil(0.2·n)` по каждому уровню, seed 42). Относительные пути `--tasks` резолвятся от корня репо (`bundle/tasks/val.jsonl`).
+
+⁴ Живой тест (Haiku, $0.003): tool-call через Pi → прокси → LiteLLM; cache read 18.9k на 2-м и 3-м вызове; **новая сессия с тем же system prompt тоже читает кэш** (18.8k) — fan-out batch работает от прогретого префикса; ledger = Pi `usage.cost` (±1%); на стриме LiteLLM `x-litellm-response-cost` не отдаёт → стоимость из usage.
 
 ¹ Без LLM-части: смоук «3 easy train-задачи через агента» выполняется после шага 2 (Pi + LiteLLM).
 
@@ -402,6 +404,17 @@ zimran-task/
 | Бюджет $150, кап $140 | запас на демо и holdout-проверку | improve ограничен ~4–6 поколениями |
 | Код агента (python) — в отдельном `py-sandbox` в internal-сети без egress; сам `harness` сетевым allow-list не ограничен | исполняемый LLM-код физически не выходит наружу и не видит `tasks/`; allow-list-прокси для harness — часы работы | harness (наш код, не LLM-код) формально может выйти в интернет; закрываем ревью кода + LLM только через LiteLLM baseUrl |
 | Анализ на train-sample(60), а не на full train каждое поколение | экономия ~$15 на поколение | ANALYZE видит не все провалы |
+| **LLM-прокси in-process** (`src/llm/proxy.ts`): отдельный listener на `127.0.0.1:<random>`, не маршрут на `:8080` | ключ LiteLLM знает только прокси, снаружи контейнера он недостижим; один choke point для бюджета / лимитов / ретраев / учёта | ещё один слой между Pi и LiteLLM (≈ +1 мс) |
+| Прокси пробрасывает любой путь; разбор usage — Anthropic SSE/JSON и OpenAI chat-completions | routing на gpt/gemini не потребует правки прокси | Pi-провайдер сейчас зарегистрирован только для `claude-*` (`anthropic-messages`); gpt/gemini-провайдер — когда improver дойдёт до routing |
+| Атрибуция: inline-расширение на сессию с `before_provider_headers` → `x-harness-ref / scope / max-tokens / budget-usd`; без ref/scope → 400 | документированный хук, срабатывает на каждый запрос, переживает подмену модели реестром | расширение пересоздаётся на каждую сессию (дёшево) |
+| Ретраи только в прокси (408/429/5xx/сеть, до первого байта); у Pi `retry.enabled=false`, `provider.maxRetries=0` | иначе до 3×4 = 12 запросов на вызов мимо учёта | обрыв посреди стрима: batch повторяет задачу (2 попытки), в чате — ошибка хода |
+| Бюджет: проверка перед вызовом, без резервирования; `max_tokens` выше сессионного cap → 400 | перерасход ≤ concurrency × стоимость вызова (центы) при запасе $10 до лимита ключа | теоретический небольшой overshoot |
+| Стоимость: на стриме — всегда из итогового usage по `config/prices.json`; заголовок `x-litellm-response-cost` пишется как `provider_cost_usd`; источник для полного не-стримового ответа — заголовок | факт: на стриме LiteLLM заголовок не отдаёт; usage-расчёт сверен с заголовком на шаге 1 | сверка с `/key/info` в конце run'а остаётся нужна |
+| Отмена: закрытие клиента → `AbortController` на upstream fetch; строка ledger `aborted=1, estimated=1`, input/кэш точно из `message_start`, output ≈ символы/4 | не платим за генерацию, которую никто не читает; доля оценочных расходов видна | output у прерванных — оценка |
+| Единая таблица цен `config/prices.json` — снимок `/v1/model/info` (`harness`-скрипт `fetchPrices`); из неё же `cost` в Pi-провайдере | Pi `usage.cost` (UI хода) и ledger (бюджет) совпадают | проверка дрейфа цен при старте — вместе с entrypoint сервиса (шаг 14) |
+| Модель на сессию: `maxTokens = max(limit, thinkingBudget + 1024)`; допустимые thinking: off/minimal/low/medium/high (у наших моделей нет `thinkingLevelMap` → xhigh/max недоступны) → иначе 422 `version_invalid` | правило из Q10; 1024 = `MIN_ANSWER_TOKENS` самого Pi | — |
+| Pi: `cacheWarming=off`, compaction off в batch / on в чате, изолированный `agentDir` в `state/`, `noExtensions/noSkills/noContextFiles`, `User-Agent` снят | честный замер hit rate; ничего из `~/.pi` разработчика не попадает в харнесс | skills версий подключаются своим `read_skill`, не механизмом Pi |
+| Явные зависимости `@earendil-works/pi-ai@1.5.0` и `typebox@1.3.27` (те же версии, что внутри Pi) | импортируем `thinkingBudgetForLevel` и `Type` напрямую, не через транзитивные пакеты | — |
 
 ---
 
