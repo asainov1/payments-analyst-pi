@@ -148,6 +148,19 @@ describe("gate (mean of k runs)", () => {
   });
 });
 
+describe("revised easy-regression rule", () => {
+  test("a one-run flip (2/3 → 1/3) on an easy task is not a regression; 3/3 → 1/3 is", () => {
+    const ids = ["e1", "h1", "h2", "h3"];
+    const levels = { e1: "easy", h1: "hard", h2: "hard", h3: "hard" };
+    const m = (c: string[]) => new Map(ids.map((id) => [id, c.includes(id)]));
+    const parent = { runs: [m(["e1"]), m([]), m(["e1"])], costPerTask: 0.01 };
+    const flip = { runs: [m(["e1", "h1", "h2", "h3"]), m(["h1", "h2", "h3"]), m(["h1", "h2", "h3"])], costPerTask: 0.01 };
+    expect(gateDecision({ parent, cand: flip, levels, T: 2 }).easy_regressions).toBe(0);
+    const parent3 = { runs: [m(["e1"]), m(["e1"]), m(["e1"])], costPerTask: 0.01 };
+    expect(gateDecision({ parent: parent3, cand: flip, levels, T: 2 }).easy_regressions).toBe(1);
+  });
+});
+
 describe("version store", () => {
   test("createVersion writes manifest/playbook/skills/diff; readVersion round-trips; ids increment", () => {
     const repo = mkdtempSync(join(tmpdir(), "vs-"));

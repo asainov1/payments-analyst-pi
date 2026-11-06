@@ -1,6 +1,9 @@
 // Promotion gate (SPEC §3.4 GATE): mean of k val runs per side, majority-vote wins/losses,
 // threshold T from the noise between identical runs, no easy regressions, cost-guard.
 
+/** Revised rule (fixed before the v015 run): easy regression = drop of ≥ 2 of 3 runs. */
+export const EASY_REGRESSION_MIN_DROP = 2;
+
 export interface Side {
   /** one Map(task_id → correct) per val run */
   runs: Array<Map<string, boolean>>;
@@ -49,7 +52,10 @@ export function gateDecision(o: { parent: Side; cand: Side; levels: Record<strin
     if (c && !p) wins++;
     if (p && !c) {
       losses++;
-      if (o.levels[t] === "easy") easy++;
+      // Revised 16:50, fixed before the v015 run: an easy regression counts only if the task drops by
+      // ≥ 2 of the k runs (a one-run flip on an unstable task is noise — see REPORT, v013).
+      const drop = o.parent.runs.filter((r) => r.get(t)).length - o.cand.runs.filter((r) => r.get(t)).length;
+      if (o.levels[t] === "easy" && drop >= EASY_REGRESSION_MIN_DROP) easy++;
     }
   }
   const pc = mean(o.parent.runs);
