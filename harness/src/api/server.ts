@@ -5,6 +5,7 @@ import { extname, join, normalize, sep } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { ChatService } from "../chat/service.ts";
 import type { Db } from "../db/db.ts";
+import { registerMcp } from "../mcp/server.ts";
 import type { BatchRunner } from "../runs/batch.ts";
 import { RequestError } from "../runs/paths.ts";
 import type { BudgetLedger } from "../runtime/budget.ts";
@@ -226,6 +227,9 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
         }
       },
     );
+
+    // MCP (ASSIGNMENT §5.1): same ChatService → same budget, limiter and tracing as the UI.
+    if (db) registerMcp(app, { chat, db, versions });
 
     app.post("/api/sessions/:id/abort", async (req, reply) => {
       const id = (req.params as { id: string }).id;
