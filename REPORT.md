@@ -107,6 +107,14 @@ per version; cache hit rates per run; $/task per version._
   stopped mid-JSON. Fixed: low thinking, 32k output, one retry asking for the complete JSON.
 - **Stage 2, first two processes (v002–v006):** two reflector replies cut off mid-JSON (v002, v003), two parse failures on code fences inside skill strings (v004, v006), one rule rejected at SMOKE with fixed = 1 (v005, fraud ranking by rate). After stage 2 the SMOKE pre-filter was lowered to fixed − broken ≥ 1 and the consecutive-reject stop raised to 5; parse failures get one retry and no longer count as rejects. **The val gate and T = 3 were not changed.**
 - **Two candidates killed by false pre-filters, not by the gate (stage 2, third process).** v007 (a fee-matching skill) was rejected as unknown_column on local variables of its helper code; v008 (routing max_turn_s = 300 against the val-only timeouts) was rejected at SMOKE, which runs on train where timeouts never occur. Fixed: unknown_column checks only explicit column references (`table.column`, SQL fragments) in SKILL.md; a routing candidate passes SMOKE with broken = 0. Both marked `prefilter_bug` and excluded from the reflector's negative memory so they can be proposed again. **The val gate was not changed.**
+- **The improver attacked the mechanics; the problem was the reading of the question.** 10 of v000's 12
+  failures on improve-train are fee-delta questions ("what delta would X pay if the relative fee of
+  fee ID N changed to …"). Two candidates (v010, v011) added fee-matching skills; v011's agent used
+  the skill on 10 of the 12 and produced **byte-identical answers to v000 on 11 of 12** — the skill
+  reproduces the same interpretation more reliably, so SMOKE fixed 0. The disagreement with the gold
+  answers is about what the delta means (which payments it covers), not about matching fee rules.
+  The one hypothesis aimed at the interpretation (v001: exclude refused payments) was never tested —
+  it named a column that does not exist; it is now flagged `prefilter_bug` so it can be proposed again.
 - **Infrastructure bug found in stage 1:** crash recovery in every `BatchRunner` constructor re-queued
   a live run of the same process; recovery now runs once per process.
 - **Own mistake:** a val run was restarted by hand on a misread status (+$3.64).

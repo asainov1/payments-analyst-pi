@@ -106,7 +106,8 @@ export function rejectedMemory(repo: string, parent: string): Array<{ id: string
     .filter((d) => /^v\d{3}$/.test(d) && existsSync(join(repo, "versions", d, "manifest.json")))
     .sort()
     .map((id) => ({ id, m: JSON.parse(readFileSync(join(repo, "versions", id, "manifest.json"), "utf8")) }))
-    .filter(({ m }) => m.status === "rejected" && m.parent === parent && m.reject_stage !== "prefilter_bug")
+    // versions rejected by a pre-filter bug never had their idea tested → not negative memory
+    .filter(({ m }) => m.status === "rejected" && m.parent === parent && m.prefilter_bug !== true && m.reject_stage !== "prefilter_bug")
     .map(({ id, m }) => {
       const mp = join(repo, "versions", id, "metrics.json");
       const met = existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {};

@@ -80,4 +80,14 @@ describe("prefilter_bug versions are not negative memory", () => {
     writeFileSync(mp, JSON.stringify({ ...JSON.parse(readFileSync(mp, "utf8")), id: "v001", parent: "v000", status: "rejected", reject_stage: "prefilter_bug" }));
     expect(rejectedMemory(repo, "v000")).toEqual([]);
   });
+
+  test("a version flagged prefilter_bug: true (original reject_stage kept) is skipped too", async () => {
+    const { rejectedMemory } = await import("../src/improver/loop.ts");
+    const repo = mkdtempSync(join(tmpdir(), "pb2-"));
+    cpSync(join(ROOT, "versions", "v000"), join(repo, "versions", "v000"), { recursive: true });
+    cpSync(join(repo, "versions", "v000"), join(repo, "versions", "v001"), { recursive: true });
+    const mp = join(repo, "versions", "v001", "manifest.json");
+    writeFileSync(mp, JSON.stringify({ ...JSON.parse(readFileSync(mp, "utf8")), id: "v001", parent: "v000", status: "rejected", reject_stage: "smoke", prefilter_bug: true }));
+    expect(rejectedMemory(repo, "v000")).toEqual([]);
+  });
 });
