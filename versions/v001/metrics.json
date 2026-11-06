@@ -14,5 +14,6 @@
     "need": 1,
     "run_id": "7a90f9a2-01f0-40d1-bfab-d6e185cf59c2"
   },
-  "reject_reason": "smoke: fixed 0 − broken 0 < 1"
+  "reject_reason": "smoke: fixed 0 \u2212 broken 0 < 1",
+  "prefilter_bug_reason": "unknown column is_refused_by_adyen (the public original's name; here is_refused_by_psp); the current unknown_column check would reject it before SMOKE; the hypothesis itself (exclude refused payments from fee deltas) was never tested"
 }

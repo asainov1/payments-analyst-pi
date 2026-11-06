@@ -1,12 +1,13 @@
 {
   "val": null,
   "reflect_cost_usd": 0.2563544,
-  "reject_reason": "prefilter bug: unknown_column flagged local variables of the skill's helper code (fixed: only explicit column references are checked) \u2014 original: unknown_column: applicable_fee_ids, delta_ok, fee_cost, fee_delta, fee_id, fee_ids, match_table, n_ok, new_rate, volume_ok",
+  "reject_reason": "unknown_column: applicable_fee_ids, delta_ok, fee_cost, fee_delta, fee_id, fee_ids, match_table, n_ok, new_rate, volume_ok",
   "curation": {
     "applied": 2,
     "skipped_duplicates": [],
     "rules_before": 0,
     "rules_after": 1,
     "tokens_after": 96
-  }
+  },
+  "prefilter_bug_reason": "unknown_column flagged local variables of the skill's helper code, not columns (fixed: only explicit column references are checked); the skill itself was never tested"
 }

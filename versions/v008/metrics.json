@@ -14,5 +14,6 @@
     "need": 1,
     "run_id": "346632dd-a742-4502-92cd-92d9f6b392c1"
   },
-  "reject_reason": "prefilter bug: SMOKE required fixes on train for a routing change against val-only timeouts (fixed: routing needs broken = 0 only) \u2014 original: smoke: fixed 0 \u2212 broken 0 < 1"
+  "reject_reason": "smoke: fixed 0 \u2212 broken 0 < 1",
+  "prefilter_bug_reason": "SMOKE required fixes on train for a routing change against val-only timeouts (fixed: routing needs broken = 0); the change itself was never validated"
 }

@@ -17,5 +17,6 @@
     "max_output_tokens": 8192
   },
   "tool_descriptions": {},
-  "reject_stage": "prefilter_bug"
+  "reject_stage": "curator",
+  "prefilter_bug": true
 }
