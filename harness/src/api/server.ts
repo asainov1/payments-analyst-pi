@@ -9,6 +9,7 @@ import type { BatchRunner } from "../runs/batch.ts";
 import { RequestError } from "../runs/paths.ts";
 import type { BudgetLedger } from "../runtime/budget.ts";
 import type { VersionsService } from "../versions/service.ts";
+import type { ImproveService } from "./improve-service.ts";
 
 const HEARTBEAT_MS = 15_000;
 const TERMINAL = new Set(["done", "stopped_budget", "failed"]);
@@ -34,6 +35,7 @@ export interface ServerDeps {
   /** Built UI (web/dist); served for non-/api paths when present. */
   webDist?: string;
   progressPollMs?: number;
+  improve?: ImproveService;
 }
 
 export function buildServer(deps: ServerDeps): FastifyInstance {
@@ -51,10 +53,77 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
 
   const { runner, chat, versions, ledger, db } = deps;
 
-  // Until the improver lands (steps 11–13) — explicit, so the UI can show it (SPEC §4.1).
-  app.post("/api/runs/improve", async (_req, reply) =>
-    reply.status(501).send({ error: { code: "not_implemented", message: "improver is not implemented yet (SPEC steps 11–13)" } }),
+  app.post(
+    "/api/runs/improve",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["generations", "budget_usd"],
+          properties: { generations: { type: "integer", minimum: 1, maximum: 20 }, budget_usd: { type: "number", exclusiveMinimum: 0, maximum: 135 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!deps.improve) return reply.status(501).send({ error: { code: "not_implemented", message: "improver is not configured in this process" } });
+      const b = req.body as { generations: number; budget_usd: number };
+      return reply.status(202).send({ run_id: deps.improve.start({ generations: b.generations, budgetUsd: b.budget_usd }) });
+    },
   );
+
+  /** Status of a solve or improve run, in one shape for /api/runs/:id and its events. */
+  const lookupRun = (id: string): { run: Record<string, unknown> & { status: string }; progress: { done: number; total: number; stage: string; correct?: number | null } } | undefined => {
+    const imp = deps.improve?.get(id);
+    if (imp) return { run: imp.run as unknown as Record<string, unknown> & { status: string }, progress: imp.progress };
+    const v = deps.runner?.get(id);
+    if (!v) return undefined;
+    const done = v.tasks.filter((t) => t.status === "done" || t.status === "error").length;
+    const correct = v.tasks.some((t) => t.correct !== null) ? v.tasks.filter((t) => t.correct).length : null;
+    return { run: v.run as unknown as Record<string, unknown> & { status: string }, progress: { done, total: v.tasks.length, stage: "solve", correct } };
+  };
+
+  app.get("/api/runs/:id", async (req, reply) => {
+    const r = lookupRun((req.params as { id: string }).id);
+    if (!r) return reply.status(404).send({ error: { code: "not_found", message: "run not found" } });
+    return r;
+  });
+
+  app.get("/api/runs/:id/events", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    if (!lookupRun(id)) return reply.status(404).send({ error: { code: "not_found", message: "run not found" } });
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", connection: "keep-alive" });
+    let open = true;
+    raw.on("close", () => {
+      open = false;
+    });
+    const send = (event: string, data: unknown) => {
+      if (open) raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    let last = "";
+    let lastBeat = Date.now();
+    while (open) {
+      const r = lookupRun(id);
+      if (!r) break;
+      const p = { done: r.progress.done, total: r.progress.total, stage: r.progress.stage };
+      const key = JSON.stringify(p);
+      if (key !== last) {
+        send("progress", p);
+        last = key;
+      }
+      if (TERMINAL.has(r.run.status)) {
+        send("run.end", { status: r.run.status });
+        break;
+      }
+      if (Date.now() - lastBeat > HEARTBEAT_MS) {
+        if (open) raw.write(": hb\n\n");
+        lastBeat = Date.now();
+      }
+      await new Promise((res) => setTimeout(res, deps.progressPollMs ?? 1000));
+    }
+    raw.end();
+  });
 
   if (versions) {
     app.get("/api/versions", async () => versions.list());
@@ -110,49 +179,6 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       },
     );
 
-    app.get("/api/runs/:id/events", async (req, reply) => {
-      const id = (req.params as { id: string }).id;
-      if (!runner.get(id)) return reply.status(404).send({ error: { code: "not_found", message: "run not found" } });
-      reply.hijack();
-      const raw = reply.raw;
-      raw.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", connection: "keep-alive" });
-      let open = true;
-      raw.on("close", () => {
-        open = false;
-      });
-      const send = (event: string, data: unknown) => {
-        if (open) raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      };
-      let last = -1;
-      let lastBeat = Date.now();
-      while (open) {
-        const v = runner.get(id);
-        if (!v) break;
-        const done = v.tasks.filter((t) => t.status === "done" || t.status === "error").length;
-        if (done !== last) {
-          send("progress", { done, total: v.tasks.length, stage: v.run.kind === "solve" ? "solve" : v.run.kind });
-          last = done;
-        }
-        if (TERMINAL.has(v.run.status)) {
-          send("run.end", { status: v.run.status });
-          break;
-        }
-        if (Date.now() - lastBeat > HEARTBEAT_MS) {
-          if (open) raw.write(": hb\n\n");
-          lastBeat = Date.now();
-        }
-        await new Promise((r) => setTimeout(r, deps.progressPollMs ?? 1000));
-      }
-      raw.end();
-    });
-
-    app.get("/api/runs/:id", async (req, reply) => {
-      const v = runner.get((req.params as { id: string }).id);
-      if (!v) return reply.status(404).send({ error: { code: "not_found", message: "run not found" } });
-      const done = v.tasks.filter((t) => t.status === "done" || t.status === "error").length;
-      const correct = v.tasks.some((t) => t.correct !== null) ? v.tasks.filter((t) => t.correct).length : null;
-      return { run: v.run, progress: { done, total: v.tasks.length, correct } };
-    });
   }
 
   if (chat) {

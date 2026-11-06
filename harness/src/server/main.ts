@@ -3,8 +3,10 @@
 // Env: PORT (8080), HOST (127.0.0.1; 0.0.0.0 in a container), STATE_DIR (../state), IO_DIR (../io).
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { ImproveService } from "../api/improve-service.ts";
 import { buildServer } from "../api/server.ts";
 import { ChatService } from "../chat/service.ts";
+import { improve } from "../improver/loop.ts";
 import { BatchRunner } from "../runs/batch.ts";
 import { createRuntime } from "../runtime/app.ts";
 import { VersionsService } from "../versions/service.ts";
@@ -25,6 +27,7 @@ async function main(): Promise<void> {
     ledger: app.ledger,
     db: app.db,
     webDist: env.WEB_DIST ?? join(ROOT, "web", "dist"),
+    improve: new ImproveService((o) => improve(app, o)),
   });
   const url = await server.listen({ port: Number(env.PORT ?? 8080), host: env.HOST ?? "127.0.0.1" });
   console.log(`harness listening on ${url} (state ${app.stateDir}, tracing ${app.tracing ? "on" : "off"}, python ${app.pythonUrl ?? "off"})`);
