@@ -127,10 +127,11 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
     const mp = join(repo, "versions", version, "metrics.json");
     const m = (existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {}) as { val_run_ids?: string[] };
     const ids = [...(m.val_run_ids ?? [])];
-    while (ids.length < K) {
-      progress("validate", { version, run: ids.length + 1 });
-      ids.push((await solve(`${o.improveRunId}-${version}-val-${ids.length + 1}`, val, version)).id);
-    }
+    // Missing runs go in parallel: the long tail of slow tasks overlaps; the shared governor keeps RPM.
+    const missing = Array.from({ length: Math.max(0, K - ids.length) }, (_, i) => ids.length + i + 1);
+    if (missing.length) progress("validate", { version, runs: missing });
+    const done = await Promise.all(missing.map((n) => solve(`${o.improveRunId}-${version}-val-${n}`, val, version)));
+    ids.push(...done.map((r) => r.id));
     materializeValMetrics(app, version, ids, levels);
     return ids;
   };
@@ -138,10 +139,17 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
   const recovered = recoverInterrupted(repo);
   if (recovered.length) progress("recovered", { interrupted: recovered });
   let parent = readFileSync(join(repo, "versions", "BEST"), "utf8").trim();
-  const parentIds0 = await valRunsOf(parent);
-  const T = thresholdT(pairFlips(parentIds0.map((id) => correctMap(app.db, id))), K);
-  writeFileSync(join(repo, "config", "gate.json"), `${JSON.stringify({ k: K, T, from_version: parent, pair_flips: pairFlips(parentIds0.map((id) => correctMap(app.db, id))) }, null, 2)}\n`);
-  progress("gate", { T, parent });
+  // T from the parent's runs that already exist (≥ 2); its missing val runs proceed in the background
+  // during ANALYZE / reflect / SMOKE and are awaited before VALIDATE.
+  const pm0 = JSON.parse(readFileSync(join(repo, "versions", parent, "metrics.json"), "utf8")) as { val_run_ids?: string[] };
+  const existing = pm0.val_run_ids ?? [];
+  let parentReady: Promise<string[]> = valRunsOf(parent);
+  parentReady.catch(() => {}); // awaited later; avoid an unhandled rejection if it fails first
+  const tRuns = existing.length >= 2 ? existing : await parentReady;
+  const flips = pairFlips(tRuns.map((id) => correctMap(app.db, id)));
+  const T = thresholdT(flips, K);
+  writeFileSync(join(repo, "config", "gate.json"), `${JSON.stringify({ k: K, T, from_version: parent, pair_flips: flips }, null, 2)}\n`);
+  progress("gate", { T, parent, pair_flips: flips });
 
   let consecutiveRejects = 0;
   for (let gen = 1; gen <= o.generations && consecutiveRejects < 3; gen++) {
@@ -272,7 +280,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       }
 
       // VALIDATE (early stop after the first run) + GATE
-      const parentIds = await valRunsOf(parent);
+      const parentIds = await parentReady;
       const parentMean = parentIds.reduce((s, id) => s + [...correctMap(app.db, id).values()].filter(Boolean).length, 0) / parentIds.length;
       progress("validate", { version: cand, run: 1 });
       const first = await solve(`${o.improveRunId}-${cand}-val-1`, val, cand);
@@ -301,6 +309,7 @@ export async function improve(app: AppRuntime, o: ImproveOptions): Promise<{ pro
       if (decision.decision === "promote") {
         updateManifest(repo, cand, { status: "promoted" });
         writeBest(repo, cand);
+        parentReady = Promise.resolve(candIds);
         app.db.prepare("UPDATE feedback SET consumed_by = ? WHERE consumed_by IS NULL").run(cand);
         promoted.push(cand);
         parent = cand;
