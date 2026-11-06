@@ -284,6 +284,14 @@ REJECT   ─ status=rejected; ops и причина попадают в «нег
 ### 4.5 Внешние контракты
 
 - **LiteLLM:** `LITELLM_BASE_URL`, `LITELLM_API_KEY` из `.env` (в git только `.env.example`). Модели: `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`, `gpt-6.1-sol`, `gemini-3.8-flash`. Для Claude используем Anthropic Messages (`/v1/messages`) с `cache_control` (Pi ставит его сам для `anthropic-messages`). **Предположение, проверяется в шаге 1.** Fallback: `openai-completions` с ручными `cache_control` в content-блоках.
+- **Факты пробника (шаг 1, 2026-11-06, LiteLLM 1.106.6):** все 5 моделей в `/v1/models`; `/v1/messages` + `cache_control` работает для Sonnet и Haiku (запись → чтение 18 411 токенов на 2-м вызове). Цены, выведенные из `x-litellm-response-cost-*`, $/Mtok:
+
+  | модель | input | output | cache write (5m) | cache read |
+  |---|---|---|---|---|
+  | claude-sonnet-5-5 | 2.00 | 10.00 | 2.50 | 0.10 |
+  | claude-haiku-5-5 | 0.10 | 0.50 | 0.125 | 0.01 |
+
+  Заголовков `x-ratelimit-*` прокси **не отдаёт** → Governor стартует со статических лимитов из env и снижает темп на 429. Каждый ответ несёт `x-litellm-response-cost` (+ разбивку input / output / cache) — это точная стоимость вызова от самого прокси. Opus / gpt / gemini ценами пока не проверены.
 - **Стоимость:** первично `usage.cost` из Pi (по ценам в `models.json`); в конце run сверяемся с `GET /key/info` LiteLLM (spend по ключу), расхождение > 10% → warning в report.
 - **Langfuse v3** (self-hosted, официальный compose): `LANGFUSE_HOST=http://langfuse-web:3000`, ключи проекта задаются через `LANGFUSE_INIT_*` env, поэтому работает из чистого клона без ручной настройки.
 - **Песочница `py-sandbox`** (отдельный compose-сервис): только сеть `sandbox` с `internal: true` (нет egress; harness подключён к ней и к default), `read_only: true` + tmpfs `/work`, `user: "65534:65534"`, `mem_limit: 1g`, `pids_limit: 128`, `cpus: 1`, `cap_drop: [ALL]`, `no-new-privileges`. Mounts: `bundle/data:ro`, `versions:ro`. **Нет** `tasks/`, `scorer/`, `state/`, `.env`. Минимальный exec-сервер (POST `/exec {code, session, version}` → `{stdout, stderr, exit, ms}`).
@@ -337,7 +345,7 @@ zimran-task/
 
 | # | Шаг (15–30 мин) | Готово, когда… |
 |---|---|---|
-| 1 | **Пробник LiteLLM:** `/v1/models`, `/v1/messages` для Sonnet/Haiku с `cache_control`, два одинаковых запроса; заголовки rate-limit / cost | на 2-м запросе `cache_read_input_tokens > 0`; записаны цены, `x-ratelimit-*` (→ RPM/TPM Governor) |
+| 1 ✅ | **Пробник LiteLLM:** `/v1/models`, `/v1/messages` для Sonnet/Haiku с `cache_control`, два одинаковых запроса; заголовки rate-limit / cost | на 2-м запросе `cache_read_input_tokens > 0`; записаны цены, `x-ratelimit-*` (→ RPM/TPM Governor) |
 | 2 | **Pi + LiteLLM** через SDK: `models.json`, одна сессия, `customTools` с тестовым tool, подписка на события | скрипт печатает `tool_execution_start/end` и `message.usage.cacheRead > 0` на 2-м ходе |
 | 3 | **Langfuse в compose** + Tracer на событиях Pi. **Time-box 40 мин** на v3 (web+worker+pg+clickhouse+redis+minio); не взлетел → fallback **Langfuse v2 + Postgres** (тот же JS SDK, тот же Tracer) | `docker compose up` → трейс с generation (tokens / cost / cacheRead) и tool-span виден в UI Langfuse |
 | 4 | **Tools `sql` + `read_manual`**, DuckDB-таблицы + `enable_external_access=false`, промпт v000 (manual + схема); BR отдаёт агенту только question + guidelines | 3 easy train-задачи верно через `harness-dev ask`; vitest: `sql` с `read_json_auto('…/val.jsonl')` → ошибка |
