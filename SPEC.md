@@ -106,7 +106,7 @@ interface VersionManifest {               // versions/vNNN/manifest.json — в 
   status: 'baseline' | 'candidate' | 'promoted' | 'rejected';
   change_summary: string;                 // «что изменилось», 1–3 строки
   models: { analyst: string; reflector: string };   // model routing
-  thinking: ThinkingLevel;                // enum Pi SDK: 'off'|'minimal'|'low'|'medium'|'high'|'xhigh'
+  thinking: ThinkingLevel;                // enum Pi 1.x: 'off'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max' (xhigh/max — только если модель поддерживает)
   limits: { max_tool_calls: number; max_turn_usd: number; max_turn_s: number };
   tool_descriptions: Record<ToolName, string>;      // правится improver'ом
 }
@@ -170,7 +170,7 @@ interface GateDecision { parent_correct: number; cand_correct: number; wins: num
 | Модуль | Ответственность |
 |---|---|
 | `llm/provider` | Генерирует Pi `models.json`: провайдер `litellm`, `api: "anthropic-messages"` для claude-*, `openai-completions` для gpt / gemini; цены в `cost` для подсчёта Pi |
-| `agent/session` | `createAgentSession` с `DefaultResourceLoader({ systemPromptOverride })`, skills из `versions/vNNN/skills`, `customTools`, `SessionManager` с файлом в `state/sessions/` |
+| `agent/session` | `createAgentSession({ modelRuntime, tools: [<только наши>], customTools })` (Pi 1.5) с `DefaultResourceLoader({ systemPromptOverride })`; схемы tools — TypeBox (`Type` из `@earendil-works/pi-ai`); skills из `versions/vNNN/skills`, `customTools`, `SessionManager` с файлом в `state/sessions/` |
 | `agent/prompt` | Сборка system prompt в порядке, удобном для кэша: **[статичная инструкция → сжатый manual → схема данных → playbook]** → история → вопрос + guidelines |
 | `agent/tools/*` | `sql`, `python`, `read_manual`, `submit_answer`, `ask_user` (контракты в §4.4) |
 | `agent/validate` | Парсинг `guidelines` в `AnswerFormat` (`number{d}`, `list`, `scheme_name`, `merchant_name`, `grouped_list`, `yes_no`, `free`) и проверка ответа |
@@ -381,7 +381,7 @@ zimran-task/
 | Решение | Почему | Цена |
 |---|---|---|
 | Один процесс владеет всеми LLM-вызовами, CLI = HTTP-клиент | общий лимитер и бюджет без Redis / распределённых локов | `harness solve` требует поднятый сервис (`docker compose exec harness harness solve …`, задокументировать в README); масштаб = один узел |
-| Pi через SDK (`createAgentSession`), а не RPC-процесс на сессию | прямой доступ к событиям / usage, нет IPC, проще трейсинг | больше привязки к внутренним API Pi 0.73 |
+| Pi через SDK (`createAgentSession`), а не RPC-процесс на сессию; `@earendil-works/pi-coding-agent@1.5.0` (версия зафиксирована точно; API сверено по context7 `/earendil-works/pi/v1.4.0` и `/websites/pi_dev`) | прямой доступ к событиям / usage, нет IPC, проще трейсинг | больше привязки к SDK-API Pi 1.x (`ModelRuntime`, `tools` allow-list, TypeBox-схемы); апгрейд Pi — только осознанно |
 | Встроенные `bash` / `write` / `edit` Pi отключены, свои `sql` / `python` | контроль песочницы, предсказуемые tool-span'ы в Langfuse | теряем «универсальность» coding-агента |
 | Claude через `anthropic-messages` | явный `cache_control`, измеримый `cache_read` | зависит от того, пропускает ли LiteLLM `/v1/messages` (шаг 1) |
 | Порядок промпта: статика → manual → схема → playbook → история → вопрос | максимальный общий префикс между задачами | правка playbook инвалидирует кэш версии (это нормально: версия = новый префикс) |

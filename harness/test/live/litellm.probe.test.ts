@@ -1,7 +1,8 @@
 // Live probe of the provided LiteLLM endpoint (SPEC §6, step 1). Costs a few cents.
 // Run: node --env-file=.env --test harness/test/live/litellm.probe.test.ts
-import { test } from "node:test";
+
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { listModels, messages } from "../../src/llm/litellm.ts";
 
 const REQUIRED = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "gpt-6.1-sol", "gemini-3.8-flash"];
