@@ -1,0 +1,6 @@
+#!/bin/sh
+# `harness` CLI inside the container (docker compose exec harness harness solve …): a thin client
+# of the service running in the same container.
+set -eu
+export HARNESS_URL="${HARNESS_URL:-http://127.0.0.1:8080}"
+exec node /app/harness/src/cli/harness.ts "$@"

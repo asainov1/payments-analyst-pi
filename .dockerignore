@@ -1,0 +1,8 @@
+**/node_modules
+**/.git
+.env
+state
+io
+langfuse-export*.tar.gz
+web/dist
+harness/test

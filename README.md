@@ -58,13 +58,33 @@ Key points (details and trade-offs in SPEC §7):
 
 ```bash
 cp .env.example .env          # fill in LITELLM_BASE_URL and LITELLM_API_KEY
-docker compose up -d          # Langfuse at http://localhost:3000 (admin@local.test / admin12345)
-cd harness && npm ci
-npm test                      # unit tests, no LLM spend
-npm run test:live             # live LLM tests (cost cents)
+docker compose up -d --build  # harness (API + UI) on :8080, Langfuse on :3000, py-sandbox
 ```
 
-`harness solve | improve | report`, the UI and MCP are added in the next steps (SPEC §6).
+- **UI:** http://localhost:8080 — chat (streamed steps, cost / cache / trace per turn, 👍/👎, version
+  selector) and the improvements page.
+- **Langfuse:** http://localhost:3000 (`admin@local.test` / `admin12345`).
+- **CLI** runs inside the harness container (a thin client of the service there, so it shares the
+  budget cap, rate limiter and tracing). Task / answer files go through `./io` (mounted as `/io`):
+
+```bash
+cp my-tasks.jsonl io/
+docker compose exec harness harness solve --tasks /io/my-tasks.jsonl --version best --out /io/answers.jsonl
+docker compose exec harness harness solve --tasks /app/bundle/tasks/val.jsonl --version best --out /io/val.answers.jsonl
+```
+
+Tasks without an `answer` field (e.g. the holdout) are solved without scoring. `harness improve` and
+`harness report` arrive with the improver (SPEC steps 10–13).
+
+Development on the host:
+
+```bash
+cd harness && npm ci
+npm test                      # unit tests, no LLM spend
+npm run test:docker           # sandbox isolation tests (needs docker compose up)
+npm run test:live             # live LLM tests (cost cents)
+npm run serve                 # the service on the host (STATE_DIR defaults to ../state)
+```
 
 ## Budget and the holdout run
 
