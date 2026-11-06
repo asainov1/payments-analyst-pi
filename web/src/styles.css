@@ -53,3 +53,7 @@ pre { background: var(--soft); padding: 8px; border-radius: 6px; overflow-x: aut
 .diff .add { color: var(--ok); } .diff .del { color: var(--bad); }
 .diff { display: block; width: 100%; }
 .toolbar label input { width: auto; }
+.table-scroll { width: 100%; overflow-x: auto; }
+.versions td.summary { min-width: 220px; }
+.versions td.actions { position: sticky; right: 0; background: var(--bg); }
+.versions tr.best td.actions { background: var(--soft); }

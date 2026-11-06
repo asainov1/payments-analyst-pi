@@ -93,6 +93,7 @@ export function Improvements() {
         <label><input type="checkbox" checked={hideRejected} onChange={(e) => setHideRejected(e.target.checked)} /> hide rejected</label>
       </div>
 
+      <div className="table-scroll">
       <table className="versions" data-testid="versions">
         <thead>
           <tr>
@@ -126,6 +127,7 @@ export function Improvements() {
           })}
         </tbody>
       </table>
+      </div>
 
       {diff && (
         <section className="card">
