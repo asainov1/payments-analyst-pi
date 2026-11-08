@@ -1,5 +1,6 @@
 // DuckDB over the task bundle's data/ (SPEC §4.4 `sql`). Data is loaded into in-memory tables,
 // then the database is sealed: no file / network access, configuration locked, SELECT only.
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DuckDBInstance, StatementType } from "@duckdb/node-api";
 
@@ -18,25 +19,31 @@ export interface DataDb {
 }
 
 const MAX_ROWS = 200;
+/** Shared with py-sandbox/build_db.py: both tools must see the same tables and views. */
+export const SCHEMA_FILE = join(import.meta.dirname, "..", "..", "..", "config", "data-schema.sql");
+
+/** config/data-schema.sql → executable statements with {data} filled in. */
+export function schemaStatements(dataDir: string, file = SCHEMA_FILE): string[] {
+  const path = dataDir.replace(/\/+$/, "").replaceAll("'", "''");
+  return readFileSync(file, "utf8")
+    .split(/;\s*$/m)
+    .map((s) =>
+      s
+        .split("\n")
+        .filter((l) => !l.trim().startsWith("--"))
+        .join("\n")
+        .trim(),
+    )
+    .filter(Boolean)
+    .map((s) => s.replaceAll("{data}", path));
+}
 const TABLES = ["payments", "fees", "merchants", "mcc", "acquirer_countries"] as const;
 
 export async function openDataDb(dataDir: string): Promise<DataDb> {
   const instance = await DuckDBInstance.create(":memory:");
   const con = await instance.connect();
-  const f = (name: string) => `'${join(dataDir, name).replaceAll("'", "''")}'`;
 
-  await con.run(`CREATE TABLE payments AS SELECT * FROM read_csv(${f("payments.csv")}, header = true)`);
-  await con.run(`CREATE TABLE fees AS SELECT * FROM read_json(${f("fees.json")})`);
-  await con.run(`CREATE TABLE merchants AS SELECT * FROM read_json(${f("merchant_data.json")})`);
-  // The two small CSVs carry a pandas index as an unnamed first column — drop it.
-  await con.run(`CREATE TABLE mcc AS SELECT mcc, description FROM read_csv(${f("merchant_category_codes.csv")}, header = true)`);
-  await con.run(
-    `CREATE TABLE acquirer_countries AS SELECT acquirer, country_code FROM read_csv(${f("acquirer_countries.csv")}, header = true)`,
-  );
-  // Natural months (manual §5): all payments are 2023.
-  await con.run(
-    "CREATE VIEW payments_m AS SELECT *, CAST(month(DATE '2023-01-01' + CAST(day_of_year - 1 AS INTEGER)) AS INTEGER) AS month FROM payments",
-  );
+  for (const stmt of schemaStatements(dataDir)) await con.run(stmt);
 
   await con.run("SET enable_external_access = false");
   await con.run("SET lock_configuration = true");

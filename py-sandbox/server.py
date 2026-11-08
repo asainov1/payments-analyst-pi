@@ -3,8 +3,8 @@
 POST /exec {"code": str, "session": str, "version": str, "timeout_s"?: int}
   → {"stdout": str, "stderr": str, "exit_code": int, "timed_out": bool, "ms": int}
 
-Each session gets a workdir under WORK_DIR with `data` → DATA_DIR and `skills` → the version's
-skills (both read-only mounts in the container). Isolation (no network, read-only root fs,
+Each session gets a workdir under WORK_DIR with `data` → DATA_DIR, `skills` → the version's
+skills (both read-only mounts in the container) and `payments.duckdb` → DB_FILE (read-only). Isolation (no network, read-only root fs,
 uid 65534, memory/pids limits) is enforced by the container, not by this process.
 """
 
@@ -19,6 +19,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 VERSIONS_DIR = os.environ.get("VERSIONS_DIR", "/versions")
 WORK_DIR = os.environ.get("WORK_DIR", "/work")
+# Read-only DuckDB with the same tables/views as the harness `sql` tool (built into the image by
+# build_db.py from config/data-schema.sql); linked into each workdir as payments.duckdb.
+DB_FILE = os.environ.get("DB_FILE", "")
 MAX_OUTPUT = int(os.environ.get("MAX_OUTPUT", "8192"))
 DEFAULT_TIMEOUT = int(os.environ.get("TIMEOUT_S", "60"))
 SAFE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
@@ -42,6 +45,8 @@ def run(code, session, version, timeout_s):
     cwd = os.path.join(WORK_DIR, session)
     os.makedirs(cwd, exist_ok=True)
     link(DATA_DIR, "data", cwd)
+    if DB_FILE and os.path.isfile(DB_FILE):
+        link(DB_FILE, "payments.duckdb", cwd)
     skills = os.path.join(VERSIONS_DIR, version, "skills")
     if os.path.isdir(skills):
         link(skills, "skills", cwd)

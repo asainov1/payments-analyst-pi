@@ -10,6 +10,9 @@ export function pythonTool(o: { url: string; session: string; version: string; t
     description:
       "Run Python 3.12 (pandas, duckdb available) in a sandbox. Files: data/ (payments.csv, fees.json, merchant_data.json, " +
       "merchant_category_codes.csv, acquirer_countries.csv, manual.md) and skills/ (helper scripts of this harness version). " +
+      "payments.duckdb has the SAME tables and views as the sql tool (payments, payments_m, fees, merchants, mcc, " +
+      "acquirer_countries): con = duckdb.connect('payments.duckdb', read_only=True); df = con.sql('SELECT ...').df(). " +
+      "A new duckdb.connect() without that file is an empty database. " +
       "No network. Print what you need; output is truncated at 8 KB. Files you write persist within this conversation.",
     parameters: Type.Object({ code: Type.String({ description: "Python source to execute" }) }),
     async execute(_id, p, signal) {

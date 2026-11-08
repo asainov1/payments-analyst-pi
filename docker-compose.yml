@@ -161,7 +161,9 @@ services:
   # root fs, uid 65534, memory/pids/cpu limits; sees bundle/data and versions/ read-only — never
   # tasks/ or scorer/.
   py-sandbox:
-    build: ./py-sandbox
+    build:
+      context: .
+      dockerfile: py-sandbox/Dockerfile
     image: zimran-task/py-sandbox:local
     restart: unless-stopped
     networks: [sandbox]

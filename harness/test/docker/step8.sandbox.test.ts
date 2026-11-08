@@ -17,6 +17,20 @@ test("duckdb works inside the sandbox", async () => {
   assert.match(await out("import duckdb\nprint(duckdb.sql(\"select count(*) from 'data/fees.json'\").fetchone()[0])"), /^1000/);
 });
 
+test("payments.duckdb has the sql tool's tables and views (payments_m) and is read-only", async () => {
+  const r = await out(
+    [
+      "import duckdb",
+      "con = duckdb.connect('payments.duckdb', read_only=True)",
+      "print(con.sql('select count(*), max(month) from payments_m').fetchone(), con.sql('select count(*) from mcc').fetchone()[0])",
+      "try: open('payments.duckdb', 'ab'); print('WRITABLE')",
+      "except OSError as e: print('RO', type(e).__name__)",
+    ].join("\n"),
+  );
+  assert.match(r, /\(138236, 12\) 769/);
+  assert.match(r, /RO /);
+});
+
 test("tasks/ and scorer/ are not reachable from the sandbox (A14)", async () => {
   const r = await out(
     [

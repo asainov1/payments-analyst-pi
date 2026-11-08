@@ -16,10 +16,11 @@ beforeAll(async () => {
   const data = join(root, "data");
   mkdirSync(data);
   writeFileSync(join(data, "payments.csv"), "psp_reference,eur_amount\n1,10.5\n2,20\n3,30\n");
+  writeFileSync(join(root, "payments.duckdb"), "stub");
   mkdirSync(join(root, "versions", "v000", "skills", "fees"), { recursive: true });
   writeFileSync(join(root, "versions", "v000", "skills", "fees", "helper.py"), "def double(x):\n    return 2 * x\n");
   proc = spawn("python3", [SERVER], {
-    env: { PATH: process.env.PATH, PORT: "0", DATA_DIR: data, VERSIONS_DIR: join(root, "versions"), WORK_DIR: join(root, "work"), MAX_OUTPUT: "2000" },
+    env: { PATH: process.env.PATH, PORT: "0", DATA_DIR: data, VERSIONS_DIR: join(root, "versions"), WORK_DIR: join(root, "work"), MAX_OUTPUT: "2000", DB_FILE: join(root, "payments.duckdb") },
     stdio: ["ignore", "pipe", "inherit"],
   });
   url = await new Promise<string>((resolve, reject) => {
@@ -43,6 +44,10 @@ describe("python tool", () => {
 
   test("skills of the session's version are importable", async () => {
     expect(text(await run("import sys; sys.path.insert(0, 'skills/fees')\nfrom helper import double\nprint(double(21))"))).toContain("42");
+  });
+
+  test("the shared DuckDB file is linked into the workdir as payments.duckdb", async () => {
+    expect(text(await run("import os\nprint(os.path.islink('payments.duckdb'), open('payments.duckdb').read())"))).toContain("True stub");
   });
 
   test("non-zero exit → tool error with stderr", async () => {
