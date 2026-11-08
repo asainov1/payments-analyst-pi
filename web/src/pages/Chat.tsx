@@ -4,7 +4,7 @@ import { ApiError, api, type Memory, type SessionSummary, type SessionTurn, stre
 type Step = { call_id: string; tool: string; args: unknown; ok?: boolean; preview?: string; ms?: number; cancelled?: boolean };
 
 /** Text and tool calls in arrival order: the agent's reasoning interleaves with its tool use. */
-type Item = { kind: "text"; text: string } | { kind: "step"; step: Step };
+type Item = { kind: "text"; text: string } | { kind: "step"; step: Step } | { kind: "note"; text: string };
 
 type Turn = {
   key: string;
@@ -121,6 +121,14 @@ export function Chat() {
           case "clarification": update(key, (t) => ({ ...t, clarification: ev.data })); break;
           case "answer": update(key, (t) => ({ ...t, answer: ev.data })); break;
           case "turn.end": update(key, (t) => ({ ...t, end: ev.data, traceUrl: ev.data.trace_url })); break;
+          case "compaction.start": update(key, (t) => ({ ...t, items: [...t.items, { kind: "note", text: "compacting chat history…" }] })); break;
+          case "compaction.end": {
+            const d = ev.data;
+            const k = (n?: number) => `${Math.round((n ?? 0) / 1000)}k`;
+            const text = d.ok ? `chat history compacted: ${k(d.tokens_before)} → ${k(d.tokens_after)} tokens (earlier turns stay searchable)` : `history compaction failed: ${d.error}`;
+            update(key, (t) => ({ ...t, items: t.items.map((it) => (it.kind === "note" && it.text === "compacting chat history…" ? { kind: "note", text } : it)) }));
+            break;
+          }
           case "error": update(key, (t) => ({ ...t, error: `${ev.data.code}: ${ev.data.message}` })); break;
           default: break;
         }
@@ -213,6 +221,8 @@ export function Chat() {
               {t.items.map((it, i) =>
                 it.kind === "text" ? (
                   <div className="assistant" key={i}><Inline text={it.text} /></div>
+                ) : it.kind === "note" ? (
+                  <div className="muted note" key={i} data-testid="note">🗜 {it.text}</div>
                 ) : (
                   <details className="step" key={it.step.call_id}>
                     <summary>

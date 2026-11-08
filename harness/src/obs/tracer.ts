@@ -108,6 +108,7 @@ export function traceTurn(tracing: Tracing, session: Subscribable, meta: TurnMet
   let requestAt = new Date();
   let gen: LangfuseGeneration | null = null;
   const tools = new Map<string, LangfuseTool>();
+  let compaction: ReturnType<LangfuseAgent["startObservation"]> | null = null;
 
   const unsubscribe = session.subscribe((e: any) => {
     switch (e.type) {
@@ -147,6 +148,18 @@ export function traceTurn(tracing: Tracing, session: Subscribable, meta: TurnMet
             ),
           );
         }
+        break;
+      case "compaction_start":
+        compaction = tag(root.startObservation("compaction", { input: { reason: e.reason } }, { asType: "span" }));
+        break;
+      case "compaction_end":
+        compaction?.update({
+          output: e.result ? { tokensBefore: e.result.tokensBefore, estimatedTokensAfter: e.result.estimatedTokensAfter, summary: String(e.result.summary ?? "").slice(0, MAX_TOOL_OUTPUT) } : null,
+          ...(e.aborted || !e.result ? { level: "WARNING" as const, statusMessage: String(e.errorMessage ?? "compaction did not complete") } : {}),
+        });
+        compaction?.end();
+        compaction = null;
+        requestAt = new Date();
         break;
       case "tool_execution_start":
         tools.set(e.toolCallId, tag(root.startObservation(e.toolName, { input: e.args }, { asType: "tool" })));

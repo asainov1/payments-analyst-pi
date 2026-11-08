@@ -31,6 +31,8 @@ export type TurnEvent =
   | { type: "clarification"; data: { question: string; options?: string[] } }
   | { type: "answer"; data: { answer: string; assumptions: string[]; format: string; valid: boolean } }
   | { type: "turn.end"; data: { outcome: string; usage: Usage; cache_hit_rate: number; latency_ms: number; trace_url: string } }
+  | { type: "compaction.start"; data: { reason: string } }
+  | { type: "compaction.end"; data: { reason: string; ok: boolean; tokens_before?: number; tokens_after?: number; error?: string } }
   | { type: "error"; data: { code: string; message: string } };
 
 export class ApiError extends Error {

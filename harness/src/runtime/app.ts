@@ -90,7 +90,10 @@ export async function createRuntime(o: { repoRoot: string; stateDir?: string; en
       const systemPrompt = await buildSystemPrompt({ versionDir: versionDir(o.repoRoot, version), dataDir, db: data, mode: "chat", memory });
       // One JSONL file per chat: Pi restores the conversation from it after a server restart.
       const sessionFile = join(stateDir, "pi-sessions", `${sessionId}.jsonl`);
-      return createPiSession(rt, { ref, scope: "chat", model, systemPrompt, tools, compaction: true, cwd: join(stateDir, "work"), sessionFile });
+      // Compact at 200k (well before the per-turn $ limit would cut a long chat), keep 50k verbatim.
+      const compactAtTokens = Number(env.CHAT_COMPACT_AT_TOKENS ?? 200_000);
+      const keepRecentTokens = Number(env.CHAT_KEEP_RECENT_TOKENS ?? 50_000);
+      return createPiSession(rt, { ref, scope: "chat", model, systemPrompt, tools, compaction: true, cwd: join(stateDir, "work"), sessionFile, compactAtTokens, keepRecentTokens });
     },
     solver(opts = {}) {
       const inner = createAnalystSolver(

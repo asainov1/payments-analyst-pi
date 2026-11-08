@@ -327,3 +327,64 @@ describe("provider errors surface as error turns", () => {
     expect(ev.find((e) => e.event === "turn.end")?.data.outcome).toBe("error");
   });
 });
+
+describe("context: compaction and history search", () => {
+  test("compaction threshold: Pi's reserveTokens = window - compactAt (floor 16k); keepRecent ≤ half the threshold", async () => {
+    const { compactionSettings } = await import("../src/llm/pi.ts");
+    expect(compactionSettings(1_000_000, 200_000, 50_000)).toEqual({ reserveTokens: 800_000, keepRecentTokens: 50_000 });
+    expect(compactionSettings(200_000, 190_000, 50_000)).toEqual({ reserveTokens: 16_384, keepRecentTokens: 50_000 });
+    expect(compactionSettings(1_000_000, 40_000, 50_000)).toEqual({ reserveTokens: 960_000, keepRecentTokens: 20_000 });
+  });
+
+  test("Pi compaction events stream as compaction.start / compaction.end before turn.end", async () => {
+    script = async (s) => {
+      s.emit({ type: "compaction_start", reason: "threshold" });
+      s.emit({ type: "compaction_end", reason: "threshold", aborted: false, willRetry: false, result: { summary: "Analysis state: …", tokensBefore: 201_000, estimatedTokensAfter: 62_000 } });
+      s.say("answer after compaction");
+    };
+    const { session_id } = await newSession();
+    const ev = await sse(await post(`/api/sessions/${session_id}/turns`, { message: "next question" }));
+    const names = ev.map((e) => e.event);
+    expect(names.indexOf("compaction.start")).toBeLessThan(names.indexOf("compaction.end"));
+    expect(names.indexOf("compaction.end")).toBeLessThan(names.indexOf("turn.end"));
+    expect(ev.find((e) => e.event === "compaction.end")?.data).toEqual({ reason: "threshold", ok: true, tokens_before: 201_000, tokens_after: 62_000 });
+    expect(ev.at(-1)?.data.outcome).toBe("answered");
+  });
+
+  test("a failed compaction is reported, the turn still ends", async () => {
+    script = async (s) => {
+      s.emit({ type: "compaction_end", reason: "overflow", aborted: false, willRetry: false, errorMessage: "summary failed" });
+      s.say("ok");
+    };
+    const { session_id } = await newSession();
+    const ev = await sse(await post(`/api/sessions/${session_id}/turns`, { message: "q" }));
+    expect(ev.find((e) => e.event === "compaction.end")?.data).toEqual({ reason: "overflow", ok: false, error: "summary failed" });
+  });
+
+  test("search_history finds earlier turns of the same chat by all words, case-insensitive; other chats are not searched", async () => {
+    script = async (s, text) => s.say(text.startsWith("q1") ? "NexPay fraud rate is 9.39%" : text.startsWith("q2") ? "GlobalCard volume 1.2M" : "x");
+    const { session_id } = await newSession();
+    await sse(await post(`/api/sessions/${session_id}/turns`, { message: "q1 fraud for Golfclub" }));
+    await sse(await post(`/api/sessions/${session_id}/turns`, { message: "q2 volume" }));
+    const other = await newSession();
+    await sse(await post(`/api/sessions/${other.session_id}/turns`, { message: "q1 nexpay elsewhere" }));
+
+    let found = "";
+    script = async (s) => {
+      found = (await s.callTool("search_history", { query: "nexpay FRAUD" })).content.map((c: any) => c.text).join("");
+      s.say("done");
+    };
+    await sse(await post(`/api/sessions/${session_id}/turns`, { message: "what did we find for nexpay?" }));
+    expect(found).toContain("Turn 1");
+    expect(found).toContain("9.39%");
+    expect(found).not.toContain("GlobalCard");
+    expect(found).not.toContain("elsewhere");
+
+    script = async (s) => {
+      found = (await s.callTool("search_history", { query: "SwiftCharge" })).content.map((c: any) => c.text).join("");
+      s.say("done");
+    };
+    await sse(await post(`/api/sessions/${session_id}/turns`, { message: "swiftcharge?" }));
+    expect(found).toBe('No earlier turn matches "SwiftCharge".');
+  });
+});

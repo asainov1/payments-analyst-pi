@@ -167,7 +167,7 @@ export class ChatService {
     let live = this.live.get(id);
     if (!live) {
       const holder: Live = { session: undefined as unknown as ChatSessionLike, ref: "", busy: false, abort: null };
-      const tools = [...this.o.baseTools({ sessionId: id, version }), this.askUserTool(id), this.rememberTool(id)];
+      const tools = [...this.o.baseTools({ sessionId: id, version }), this.askUserTool(id), this.rememberTool(id), this.searchHistoryTool(id)];
       const memory = this.memories().map((m) => m.text);
       holder.session = await this.o.factory({ sessionId: id, version, tools, ref: () => holder.ref, memory });
       this.live.set(id, holder);
@@ -241,6 +241,17 @@ export class ChatService {
             if (t) lastText = t;
             if (e.message.stopReason === "error") providerError = String(e.message.errorMessage ?? "LLM provider error");
           }
+          break;
+        case "compaction_start":
+          emit({ event: "compaction.start", data: { reason: e.reason } });
+          break;
+        case "compaction_end":
+          emit({
+            event: "compaction.end",
+            data: e.aborted || !e.result
+              ? { reason: e.reason, ok: false, error: e.errorMessage ?? (e.aborted ? "aborted" : "failed") }
+              : { reason: e.reason, ok: true, tokens_before: e.result.tokensBefore, tokens_after: e.result.estimatedTokensAfter },
+          });
           break;
         case "tool_execution_start":
           usage.tool_calls++;
@@ -322,6 +333,36 @@ export class ChatService {
           return { content: [{ type: "text", text: `Not saved: ${e instanceof Error ? e.message : String(e)}` }], details: {} };
         }
       },
+    }) as ToolDefinition;
+  }
+
+  /** Earlier turns of this chat whose question or answer contains every query word (case-insensitive). */
+  searchHistory(sessionId: string, query: string, limit = 5): string {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return "Empty query.";
+    const rows = this.o.db.prepare("SELECT idx, user_message, answer FROM turns WHERE session_id = ? ORDER BY idx").all(sessionId) as Array<{ idx: number; user_message: string; answer: string | null }>;
+    const hits = rows.filter((r) => {
+      const text = `${r.user_message}\n${r.answer ?? ""}`.toLowerCase();
+      return words.every((w) => text.includes(w));
+    });
+    if (!hits.length) return `No earlier turn matches "${query}".`;
+    const cut = (s: string) => (s.length > 1200 ? `${s.slice(0, 1200)}…` : s);
+    return hits
+      .slice(-limit)
+      .map((r) => `Turn ${r.idx + 1}\nUser: ${cut(r.user_message)}\nAnswer: ${cut(r.answer ?? "(none)")}`)
+      .join("\n\n---\n\n");
+  }
+
+  private searchHistoryTool(sessionId: string): ToolDefinition {
+    return defineTool({
+      name: "search_history",
+      label: "Search history",
+      description:
+        "Search the full history of THIS chat (every earlier question and final answer, including turns that were " +
+        "compacted out of your context). Use it when the user refers to something you no longer see. Returns matching " +
+        "turns (all words must match, case-insensitive), most recent last.",
+      parameters: Type.Object({ query: Type.String({ description: "Words to find, e.g. 'NexPay fraud'" }) }),
+      execute: async (_id, p) => ({ content: [{ type: "text", text: this.searchHistory(sessionId, p.query) }], details: {} }),
     }) as ToolDefinition;
   }
 

@@ -288,6 +288,8 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 | `clarification` | `{ question, options? }` |
 | `answer` | `{ answer, assumptions[], format, valid }` — только если ход вызвал `submit_answer` (batch); в чате ответ = текст из `text.delta`, он же `Turn.answer` |
 | `turn.end` | `{ turn_id, outcome, usage: Usage, cache_hit_rate, latency_ms, trace_url }` (`turn_id` добавлен в шаге 14 — совместимо) |
+| `compaction.start` | `{ reason: "threshold" \| "overflow" }` — Pi сжимает историю чата (порог 200k токенов, последние 50k дословно; `CHAT_COMPACT_AT_TOKENS` / `CHAT_KEEP_RECENT_TOKENS`) |
+| `compaction.end` | `{ reason, ok: true, tokens_before, tokens_after }` \| `{ reason, ok: false, error }`; сводка сохраняет фильтры, допущения и найденные числа; старые ходы доступны модели через tool `search_history` |
 | `error` | `{ code, message }` |
 
 Порядок гарантирован: `turn.start` → (…)* → `turn.end` | `error`. Heartbeat-комментарий каждые 15 с.

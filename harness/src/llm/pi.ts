@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AgentSession,
+  compact,
   createAgentSession,
   DefaultResourceLoader,
   ModelRuntime,
@@ -16,6 +17,18 @@ import type { ModelConfig } from "./model-config.ts";
 import type { PriceTable } from "./prices.ts";
 
 export const PROVIDER = "litellm";
+
+/** What a compaction summary of an analyst chat must keep (appended to Pi's summary prompt as "Additional focus"). */
+export const ANALYST_COMPACTION_FOCUS =
+  "This is a payments-data analysis chat. Start the summary with an 'Analysis state' section listing, verbatim: " +
+  "the merchant(s), period, card scheme and every other filter in force; definitions and assumptions agreed with the " +
+  "user (e.g. fraud rate = share of EUR volume, 'only NexPay'); each key number found, with what it measures and the " +
+  "filters/query behind it; open questions or pending clarifications. Keep exact identifiers and numbers.";
+
+/** Pi starts compaction when context > contextWindow - reserveTokens, so a fixed threshold is window - compactAt. */
+export function compactionSettings(contextWindow: number, compactAtTokens: number, keepRecentTokens: number) {
+  return { reserveTokens: Math.max(16_384, contextWindow - compactAtTokens), keepRecentTokens: Math.min(keepRecentTokens, Math.floor(compactAtTokens / 2)) };
+}
 
 export interface PiRuntime {
   runtime: ModelRuntime;
@@ -62,6 +75,10 @@ export interface PiSessionOptions {
   /** Chat: Pi's JSONL session file — the conversation (incl. compaction) survives a page reload or a
    *  server restart and is resumed by opening the same file. Batch: in memory. */
   sessionFile?: string;
+  /** Compact once the context exceeds this many tokens (default: Pi's window - 16k). */
+  compactAtTokens?: number;
+  /** Recent context kept verbatim by a compaction (default: Pi's 20k). */
+  keepRecentTokens?: number;
 }
 
 export async function createPiSession(rt: PiRuntime, o: PiSessionOptions): Promise<AgentSession> {
@@ -71,8 +88,19 @@ export async function createPiSession(rt: PiRuntime, o: PiSessionOptions): Promi
 
   const settingsManager = SettingsManager.inMemory({
     retry: { enabled: false, provider: { maxRetries: 0 } }, // retries live in the proxy only (Q15)
-    compaction: { enabled: o.compaction },
+    compaction: {
+      enabled: o.compaction,
+      ...(o.compactAtTokens ? compactionSettings(base.contextWindow, o.compactAtTokens, o.keepRecentTokens ?? 20_000) : {}),
+    },
     cacheWarming: "off", // we warm caches ourselves before fan-out (Q16)
+  });
+
+  // The summary request is a standalone call: it carries the same attribution headers as the session.
+  const harnessHeaders = (): Record<string, string> => ({
+    "x-harness-ref": typeof o.ref === "function" ? o.ref() : o.ref,
+    "x-harness-scope": o.scope,
+    "x-harness-max-tokens": String(o.model.maxTokens),
+    ...(o.budgetUsd != null ? { "x-harness-budget-usd": String(o.budgetUsd) } : {}),
   });
 
   const resourceLoader = new DefaultResourceLoader({
@@ -95,6 +123,11 @@ export async function createPiSession(rt: PiRuntime, o: PiSessionOptions): Promi
           if (o.budgetUsd != null) event.headers["x-harness-budget-usd"] = String(o.budgetUsd);
           event.headers["User-Agent"] = null;
           event.headers["user-agent"] = null;
+        });
+        // Domain-aware compaction: Pi's own summariser, plus what an analyst chat must not lose.
+        pi.on("session_before_compact", async (event) => {
+          const result = await compact(event.preparation, model, "harness-proxy", harnessHeaders(), ANALYST_COMPACTION_FOCUS, event.signal);
+          return { compaction: result };
         });
       },
     ],
