@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, api, streamTurn, type Usage, type VersionRow } from "../api.ts";
+import { ApiError, api, type Memory, type SessionSummary, type SessionTurn, streamTurn, type Usage, type VersionRow } from "../api.ts";
 
 type Step = { call_id: string; tool: string; args: unknown; ok?: boolean; preview?: string; ms?: number; cancelled?: boolean };
 
@@ -31,6 +31,29 @@ function Inline({ text }: { text: string }) {
       : <span key={i}>{p}</span>)}</>;
 }
 
+/** The open chat survives a page reload: its id is kept per browser (best effort — storage may be blocked). */
+const STORE_KEY = "chat.session";
+const stored = {
+  get: () => { try { return localStorage.getItem(STORE_KEY); } catch { return null; } },
+  set: (id: string | null) => { try { if (id) localStorage.setItem(STORE_KEY, id); else localStorage.removeItem(STORE_KEY); } catch { /* ignore */ } },
+};
+
+/** A stored turn (GET /api/sessions/:id) → the view model; tool steps are not stored, only the outcome. */
+function fromStored(t: SessionTurn): Turn {
+  const prompt = t.usage.input + t.usage.cache_read + t.usage.cache_write;
+  const clar = t.outcome === "clarification" && t.answer;
+  return {
+    key: t.id,
+    user: t.user_message,
+    turnId: t.id,
+    items: t.answer && !clar ? [{ kind: "text", text: t.answer }] : [],
+    clarification: clar ? { question: t.answer as string } : undefined,
+    end: { outcome: t.outcome, usage: t.usage, cache_hit_rate: prompt ? t.usage.cache_read / prompt : 0, latency_ms: t.latency_ms, trace_url: t.trace_url ?? "" },
+    traceUrl: t.trace_url ?? undefined,
+    running: false,
+  };
+}
+
 function appendText(items: Item[], delta: string): Item[] {
   const last = items.at(-1);
   return last?.kind === "text" ? [...items.slice(0, -1), { kind: "text", text: last.text + delta }] : [...items, { kind: "text", text: delta }];
@@ -43,11 +66,33 @@ export function Chat() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
+  const [history, setHistory] = useState<SessionSummary[]>([]);
+  const [memories, setMemories] = useState<Memory[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const running = turns.some((t) => t.running);
 
+  const refresh = () => {
+    api.sessions().then((r) => setHistory(r.sessions)).catch(() => {});
+    api.memories().then((r) => setMemories(r.memories)).catch(() => {});
+  };
+
+  async function open(id: string) {
+    try {
+      const s = await api.session(id);
+      setSessionId(id);
+      setVersion(s.session.version);
+      setTurns(s.turns.map(fromStored));
+      stored.set(id);
+    } catch {
+      stored.set(null); // deleted / unknown session: start fresh
+    }
+  }
+
   useEffect(() => {
     api.versions().then((r) => { setVersions(r.versions); setBest(r.best); }).catch(() => {});
+    const last = stored.get();
+    if (last) void open(last);
+    refresh();
   }, []);
 
   const update = (key: string, fn: (t: Turn) => Turn) => setTurns((ts) => ts.map((t) => (t.key === key ? fn(t) : t)));
@@ -65,6 +110,7 @@ export function Chat() {
       if (!sid) {
         sid = (await api.createSession(version)).session_id;
         setSessionId(sid);
+        stored.set(sid);
       }
       for await (const ev of streamTurn(sid, text, ctrl.signal)) {
         switch (ev.type) {
@@ -85,6 +131,7 @@ export function Chat() {
       update(key, (t) => ({ ...t, error: msg }));
     } finally {
       abortRef.current = null;
+      refresh();
       // A step without tool.end will never finish (stop, error, dropped stream): mark it, don't leave "running…".
       update(key, (t) => ({
         ...t,
@@ -104,6 +151,12 @@ export function Chat() {
     setVersion(v);
     setSessionId(null);
     setTurns([]);
+    stored.set(null);
+  }
+
+  async function forget(id: string) {
+    await api.forget(id);
+    refresh();
   }
 
   async function rate(t: Turn, rating: "up" | "down") {
@@ -128,8 +181,28 @@ export function Chat() {
           </select>
         </label>
         <button onClick={() => newSession(version)} disabled={running}>New chat</button>
+        <select value="" onChange={(e) => e.target.value && void open(e.target.value)} disabled={running} data-testid="history">
+          <option value="">History ({history.length})</option>
+          {history.map((h) => (
+            <option key={h.id} value={h.id}>
+              {h.id === sessionId ? "● " : ""}{(h.title ?? "").slice(0, 48)} · {h.turns} turns · {h.version}
+            </option>
+          ))}
+        </select>
         <span className="muted">{sessionId ? `session ${sessionId.slice(0, 8)}` : "new session on first message"}</span>
       </div>
+
+      <details className="memory" data-testid="memory">
+        <summary>Long-term memory ({memories.length}) — shared by all chats</summary>
+        {memories.length === 0 && <p className="muted">Empty. Tell the analyst a preference ("remember: I work on Crossfit_Hanna") and it saves it here.</p>}
+        <ul>
+          {memories.map((m) => (
+            <li key={m.id}>
+              {m.text} <button onClick={() => void forget(m.id)} aria-label="forget">✕</button>
+            </li>
+          ))}
+        </ul>
+      </details>
 
       <div className="turns">
         {turns.length === 0 && <p className="muted">Ask about fees, fraud, card schemes, merchants… Follow-ups keep the context.</p>}

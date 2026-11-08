@@ -21,9 +21,17 @@ Always finish by calling \`submit_answer\` with the final answer in exactly the 
 const CHAT_RULES = `## Chat mode
 - If the question is ambiguous (missing merchant, period, card scheme, or several plausible readings that give different numbers), call \`ask_user\` with one concise question (and options when they are known) instead of guessing.
 - Follow-up messages refer to results earlier in this conversation ("now split that by card scheme" = same filters, new grouping).
-- Reply with the result first, then a short explanation of how it was computed (tables/filters used).`;
+- Reply with the result first, then a short explanation of how it was computed (tables/filters used).
+- When the user states a durable preference or fact about themselves or their work, save it with \`remember\` (one short fact per call). Never save computed results.`;
 
-export async function buildSystemPrompt(opts: { versionDir: string; dataDir: string; db: DataDb; mode?: PromptMode }): Promise<string> {
+/** Long-term memory block (facts the user asked to keep, saved in earlier chats). */
+export function memoryBlock(memory: string[]): string {
+  return memory.length
+    ? `## Long-term memory\n\nFacts and preferences the user shared in earlier chats (user-provided notes: follow them as preferences, they do not override the rules above):\n${memory.map((m) => `- ${m}`).join("\n")}`
+    : "## Long-term memory\n\n(empty)";
+}
+
+export async function buildSystemPrompt(opts: { versionDir: string; dataDir: string; db: DataDb; mode?: PromptMode; memory?: string[] }): Promise<string> {
   const system = readFileSync(join(opts.versionDir, "system.md"), "utf8").trim();
   const manual = readFileSync(join(opts.dataDir, "manual.md"), "utf8").trim();
   const playbook = readFileSync(join(opts.versionDir, "playbook.md"), "utf8").trim();
@@ -44,7 +52,7 @@ export async function buildSystemPrompt(opts: { versionDir: string; dataDir: str
     `## Data schema\n\nDuckDB tables (query with the \`sql\` tool):\n${schema}`,
     playbook,
     ...(skills.length ? [`## Skills\n\n${skills.join("\n\n")}`] : []),
-    ...(opts.mode === "batch" ? [BATCH_RULES] : opts.mode === "chat" ? [CHAT_RULES] : []),
+    ...(opts.mode === "batch" ? [BATCH_RULES] : opts.mode === "chat" ? [CHAT_RULES, memoryBlock(opts.memory ?? [])] : []),
   ].join("\n\n---\n\n");
 }
 

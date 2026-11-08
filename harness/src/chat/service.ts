@@ -1,6 +1,9 @@
-// Chat sessions (SPEC §4.1–§4.2, step 14): one Pi session per chat, kept in memory for follow-ups;
-// every turn streams SSE events, is attributed in the ledger as `chat/<session>/<turn>`, traced in
-// Langfuse and persisted (turns table). `ask_user` ends a turn as a clarification.
+// Chat sessions (SPEC §4.1–§4.2, step 14): one Pi session per chat, kept in memory for follow-ups and
+// persisted by Pi as a JSONL file (the factory opens it), so a chat survives a page reload or a server
+// restart; every turn streams SSE events, is attributed in the ledger as `chat/<session>/<turn>`, traced
+// in Langfuse and persisted (turns table). `ask_user` ends a turn as a clarification.
+// Long-term memory across sessions: the `remember` tool stores short facts (memories table); every new
+// session gets them in its system prompt.
 import { randomUUID } from "node:crypto";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -18,7 +21,23 @@ export interface ChatSessionLike {
   dispose(): void;
 }
 
-export type ChatSessionFactory = (o: { sessionId: string; version: string; tools: ToolDefinition[]; ref: () => string }) => Promise<ChatSessionLike>;
+export type ChatSessionFactory = (o: {
+  sessionId: string;
+  version: string;
+  tools: ToolDefinition[];
+  ref: () => string;
+  /** Long-term memories (oldest first) for the system prompt. */
+  memory: string[];
+}) => Promise<ChatSessionLike>;
+
+export interface Memory {
+  id: string;
+  text: string;
+  session_id: string | null;
+  created_at: string;
+}
+export const MAX_MEMORIES = 50;
+export const MAX_MEMORY_CHARS = 300;
 
 export interface Usage {
   input: number;
@@ -69,6 +88,40 @@ export class ChatService {
     return { session_id: id, version: v };
   }
 
+  /** Recent sessions for the UI's history list (newest activity first). */
+  list(limit = 30) {
+    return this.o.db
+      .prepare(
+        `SELECT s.id, s.version, s.origin, s.created_at, COUNT(t.id) AS turns,
+                (SELECT user_message FROM turns WHERE session_id = s.id ORDER BY idx LIMIT 1) AS title,
+                COALESCE(MAX(t.created_at), s.created_at) AS updated_at
+           FROM sessions s LEFT JOIN turns t ON t.session_id = s.id
+          GROUP BY s.id HAVING COUNT(t.id) > 0
+          ORDER BY updated_at DESC LIMIT ?`,
+      )
+      .all(limit) as Array<{ id: string; version: string; origin: string; created_at: string; turns: number; title: string | null; updated_at: string }>;
+  }
+
+  memories(): Memory[] {
+    return this.o.db.prepare("SELECT id, text, session_id, created_at FROM memories ORDER BY created_at, id").all() as unknown as Memory[];
+  }
+
+  remember(text: string, sessionId: string | null): Memory {
+    const t = text.trim().replace(/\s+/g, " ");
+    if (!t) throw new RequestError("invalid_request", 400, "empty memory");
+    if (t.length > MAX_MEMORY_CHARS) throw new RequestError("invalid_request", 400, `memory longer than ${MAX_MEMORY_CHARS} chars`);
+    const existing = this.memories().find((m) => m.text.toLowerCase() === t.toLowerCase());
+    if (existing) return existing;
+    if (this.memories().length >= MAX_MEMORIES) throw new RequestError("invalid_request", 400, `memory is full (${MAX_MEMORIES}); ask the user which to delete`);
+    const id = randomUUID();
+    this.o.db.prepare("INSERT INTO memories (id, text, session_id) VALUES (?, ?, ?)").run(id, t, sessionId);
+    return this.memories().find((m) => m.id === id) as Memory;
+  }
+
+  forget(id: string): boolean {
+    return this.o.db.prepare("DELETE FROM memories WHERE id = ?").run(id).changes > 0;
+  }
+
   get(id: string) {
     const session = this.o.db.prepare("SELECT id, version, origin, created_at FROM sessions WHERE id = ?").get(id) as
       | { id: string; version: string; origin: string; created_at: string }
@@ -114,8 +167,9 @@ export class ChatService {
     let live = this.live.get(id);
     if (!live) {
       const holder: Live = { session: undefined as unknown as ChatSessionLike, ref: "", busy: false, abort: null };
-      const tools = [...this.o.baseTools({ sessionId: id, version }), this.askUserTool(id)];
-      holder.session = await this.o.factory({ sessionId: id, version, tools, ref: () => holder.ref });
+      const tools = [...this.o.baseTools({ sessionId: id, version }), this.askUserTool(id), this.rememberTool(id)];
+      const memory = this.memories().map((m) => m.text);
+      holder.session = await this.o.factory({ sessionId: id, version, tools, ref: () => holder.ref, memory });
       this.live.set(id, holder);
       live = holder;
     }
@@ -237,6 +291,26 @@ export class ChatService {
 
   private readonly clarification = new Map<string, { question: string; options?: string[] }>();
   private readonly emitters = new Map<string, (e: SseEvent) => void>();
+
+  private rememberTool(sessionId: string): ToolDefinition {
+    return defineTool({
+      name: "remember",
+      label: "Remember",
+      description:
+        "Save ONE short durable fact or preference the user stated (e.g. 'User works on Crossfit_Hanna', 'Show amounts in EUR " +
+        "thousands') to long-term memory, shared by all future chats. Not for query results or numbers you computed. " +
+        `Max ${MAX_MEMORY_CHARS} chars.`,
+      parameters: Type.Object({ fact: Type.String() }),
+      execute: async (_id, p) => {
+        try {
+          const m = this.remember(p.fact, sessionId);
+          return { content: [{ type: "text", text: `Saved to long-term memory: ${m.text}` }], details: {} };
+        } catch (e) {
+          return { content: [{ type: "text", text: `Not saved: ${e instanceof Error ? e.message : String(e)}` }], details: {} };
+        }
+      },
+    }) as ToolDefinition;
+  }
 
   private askUserTool(sessionId: string): ToolDefinition {
     return defineTool({

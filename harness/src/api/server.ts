@@ -188,6 +188,21 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
       return reply.status(201).send(chat.create(b.version ?? "best"));
     });
 
+    app.get("/api/sessions", async () => ({ sessions: chat.list() }));
+
+    app.get("/api/memories", async () => ({ memories: chat.memories() }));
+
+    app.post(
+      "/api/memories",
+      { schema: { body: { type: "object", required: ["text"], properties: { text: { type: "string", minLength: 1 } } } } },
+      async (req, reply) => reply.status(201).send(chat.remember((req.body as { text: string }).text, null)),
+    );
+
+    app.delete("/api/memories/:id", async (req, reply) => {
+      if (!chat.forget((req.params as { id: string }).id)) return reply.status(404).send({ error: { code: "not_found", message: "memory not found" } });
+      return reply.status(204).send();
+    });
+
     app.get("/api/sessions/:id", async (req, reply) => {
       const v = chat.get((req.params as { id: string }).id);
       if (!v) return reply.status(404).send({ error: { code: "not_found", message: "session not found" } });

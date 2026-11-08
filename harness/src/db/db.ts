@@ -76,6 +76,13 @@ const MIGRATIONS: string[] = [
      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
    );`,
   `ALTER TABLE run_tasks ADD COLUMN trace_json TEXT;`,
+  // Long-term memory across chat sessions (`remember` tool); injected into new sessions' system prompt.
+  `CREATE TABLE memories (
+     id TEXT PRIMARY KEY,
+     text TEXT NOT NULL,
+     session_id TEXT REFERENCES sessions(id),
+     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+   );`,
 ];
 
 export type Db = DatabaseSync;

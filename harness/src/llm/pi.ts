@@ -59,6 +59,9 @@ export interface PiSessionOptions {
   /** Chat: on (long conversations). Batch: off (short, avoids an extra LLM call). */
   compaction: boolean;
   cwd: string;
+  /** Chat: Pi's JSONL session file — the conversation (incl. compaction) survives a page reload or a
+   *  server restart and is resumed by opening the same file. Batch: in memory. */
+  sessionFile?: string;
 }
 
 export async function createPiSession(rt: PiRuntime, o: PiSessionOptions): Promise<AgentSession> {
@@ -107,7 +110,7 @@ export async function createPiSession(rt: PiRuntime, o: PiSessionOptions): Promi
     tools: o.tools.map((t) => t.name),
     customTools: o.tools,
     resourceLoader,
-    sessionManager: SessionManager.inMemory(o.cwd),
+    sessionManager: o.sessionFile ? SessionManager.open(o.sessionFile, undefined, o.cwd) : SessionManager.inMemory(o.cwd),
     settingsManager,
   });
   return session;

@@ -69,6 +69,7 @@ let base = "";
 let bus: EventEmitter;
 let made: FakeSession[];
 let script: Script;
+let lastMemory: string[] = [];
 
 beforeEach(async () => {
   bus = new EventEmitter();
@@ -79,6 +80,7 @@ beforeEach(async () => {
     s.say(`answer to: ${text}`);
   };
   const factory: ChatSessionFactory = async (o) => {
+    lastMemory = o.memory;
     const s = new FakeSession(o.tools, o.ref, (x, t) => script(x, t), bus);
     made.push(s);
     return s;
@@ -214,4 +216,88 @@ describe("sessions", () => {
     const { session_id } = await newSession();
     expect((await post(`/api/sessions/${session_id}/turns`, { message: "" })).status).toBe(400);
   });
+});
+
+describe("memory across page reloads and sessions", () => {
+  test("GET /api/sessions lists chats with turns (newest first, title = first message); empty chats are hidden", async () => {
+    const a = await newSession();
+    await sse(await post(`/api/sessions/${a.session_id}/turns`, { message: "first chat" }));
+    await newSession(); // no turns → not listed
+    const b = await newSession();
+    await sse(await post(`/api/sessions/${b.session_id}/turns`, { message: "second chat" }));
+    await sse(await post(`/api/sessions/${b.session_id}/turns`, { message: "follow-up" }));
+    const r = (await (await fetch(`${base}/api/sessions`)).json()) as { sessions: Array<{ id: string; title: string; turns: number }> };
+    expect(r.sessions.map((s) => [s.id, s.title, s.turns])).toEqual([
+      [b.session_id, "second chat", 2],
+      [a.session_id, "first chat", 1],
+    ]);
+  });
+
+  test("remember tool → stored once, listed, passed to the next session's factory; DELETE forgets", async () => {
+    script = async (s, text) => {
+      await s.callTool("remember", { fact: "  User works on   Crossfit_Hanna " });
+      await s.callTool("remember", { fact: "user works on crossfit_hanna" }); // duplicate, case-insensitive
+      s.say(`ok: ${text}`);
+    };
+    const a = await newSession();
+    const ev = await sse(await post(`/api/sessions/${a.session_id}/turns`, { message: "I work on Crossfit_Hanna" }));
+    expect(ev.filter((e) => e.event === "tool.end").map((e) => e.data.preview)).toEqual([
+      "Saved to long-term memory: User works on Crossfit_Hanna",
+      "Saved to long-term memory: User works on Crossfit_Hanna",
+    ]);
+    const mems = ((await (await fetch(`${base}/api/memories`)).json()) as { memories: Array<{ id: string; text: string; session_id: string }> }).memories;
+    expect(mems.map((m) => [m.text, m.session_id])).toEqual([["User works on Crossfit_Hanna", a.session_id]]);
+
+    const prev = made.length;
+    script = async (s, text) => s.say(`hi ${text}`);
+    const b = await newSession();
+    await sse(await post(`/api/sessions/${b.session_id}/turns`, { message: "hello" }));
+    expect(made.length).toBe(prev + 1);
+    expect(lastMemory).toEqual(["User works on Crossfit_Hanna"]);
+
+    expect((await fetch(`${base}/api/memories/${mems[0].id}`, { method: "DELETE" })).status).toBe(204);
+    expect((await fetch(`${base}/api/memories/${mems[0].id}`, { method: "DELETE" })).status).toBe(404);
+    expect(((await (await fetch(`${base}/api/memories`)).json()) as { memories: unknown[] }).memories).toEqual([]);
+  });
+
+  test("POST /api/memories adds a memory by hand; empty or too long → 400; the tool reports a refusal instead of failing", async () => {
+    expect((await post("/api/memories", { text: "Amounts in EUR thousands" })).status).toBe(201);
+    expect((await post("/api/memories", { text: "" })).status).toBe(400);
+    expect((await post("/api/memories", { text: "x".repeat(301) })).status).toBe(400);
+    script = async (s) => {
+      await s.callTool("remember", { fact: "y".repeat(400) });
+      s.say("done");
+    };
+    const a = await newSession();
+    const ev = await sse(await post(`/api/sessions/${a.session_id}/turns`, { message: "remember this" }));
+    expect(ev.find((e) => e.event === "tool.end")?.data.preview).toMatch(/^Not saved: memory longer than 300/);
+    expect(ev.at(-1)?.data.outcome).toBe("answered");
+  });
+
+  test("Pi restores a chat from its JSONL session file (what the factory opens after a restart)", async () => {
+    const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+    const file = join(mkdtempSync(join(tmpdir(), "pi-sess-")), "s1.jsonl");
+    const sm = SessionManager.open(file, undefined, tmpdir());
+    sm.appendMessage({ role: "user", content: [{ type: "text", text: "fraud rate of Crossfit_Hanna?" }], timestamp: Date.now() });
+    sm.appendMessage({ role: "assistant", content: [{ type: "text", text: "9.1%" }], api: "anthropic-messages", provider: "p", model: "m", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } as never);
+    const reopened = SessionManager.open(file, undefined, tmpdir());
+    const msgs = reopened.buildSessionContext().messages as Array<{ role: string; content: Array<{ text?: string }> }>;
+    expect(msgs.map((m) => [m.role, m.content[0]?.text])).toEqual([
+      ["user", "fraud rate of Crossfit_Hanna?"],
+      ["assistant", "9.1%"],
+    ]);
+  });
+});
+
+test("chat system prompt carries long-term memory; batch prompt does not", async () => {
+  const { buildSystemPrompt } = await import("../src/agent/prompt.ts");
+  const root = join(import.meta.dirname, "..", "..");
+  const db = { schema: async () => "- payments(x INTEGER)" } as never;
+  const versionDir = join(root, "versions", "v012");
+  const dataDir = join(root, "bundle", "data");
+  const chat = await buildSystemPrompt({ versionDir, dataDir, db, mode: "chat", memory: ["User works on Crossfit_Hanna"] });
+  expect(chat).toContain("## Long-term memory");
+  expect(chat).toContain("- User works on Crossfit_Hanna");
+  expect(await buildSystemPrompt({ versionDir, dataDir, db, mode: "chat" })).toContain("## Long-term memory\n\n(empty)");
+  expect(await buildSystemPrompt({ versionDir, dataDir, db, mode: "batch", memory: ["x"] })).not.toContain("Long-term memory");
 });

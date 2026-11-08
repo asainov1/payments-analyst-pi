@@ -54,7 +54,24 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+export type SessionTurn = {
+  id: string;
+  idx: number;
+  user_message: string;
+  outcome: string;
+  answer: string | null;
+  usage: Usage;
+  latency_ms: number;
+  trace_url: string | null;
+};
+export type SessionSummary = { id: string; version: string; title: string | null; turns: number; updated_at: string };
+export type Memory = { id: string; text: string; session_id: string | null; created_at: string };
+
 export const api = {
+  sessions: () => call<{ sessions: SessionSummary[] }>("/api/sessions"),
+  session: (id: string) => call<{ session: { id: string; version: string }; turns: SessionTurn[] }>(`/api/sessions/${id}`),
+  memories: () => call<{ memories: Memory[] }>("/api/memories"),
+  forget: (id: string) => fetch(`/api/memories/${id}`, { method: "DELETE" }),
   versions: () => call<{ best: string; versions: VersionRow[] }>("/api/versions"),
   budget: () => call<{ cap_usd: number; spent_usd: number; remaining_usd: number }>("/api/budget"),
   createSession: (version: string) =>

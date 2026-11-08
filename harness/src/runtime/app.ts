@@ -84,11 +84,13 @@ export async function createRuntime(o: { repoRoot: string; stateDir?: string; en
     onUsage,
     chatTools: ({ sessionId, version }) =>
       dataTools({ db: data, dataDir, python: pythonUrl ? { url: pythonUrl, session: `chat_${sessionId}`, version } : undefined }),
-    chatFactory: async ({ version, tools, ref }) => {
+    chatFactory: async ({ sessionId, version, tools, ref, memory }) => {
       const v = loadManifest(o.repoRoot, version);
       const model = resolveModelConfig(prices, { model: v.models.analyst, thinking: v.thinking, limits: { max_output_tokens: v.limits.max_output_tokens } });
-      const systemPrompt = await buildSystemPrompt({ versionDir: versionDir(o.repoRoot, version), dataDir, db: data, mode: "chat" });
-      return createPiSession(rt, { ref, scope: "chat", model, systemPrompt, tools, compaction: true, cwd: join(stateDir, "work") });
+      const systemPrompt = await buildSystemPrompt({ versionDir: versionDir(o.repoRoot, version), dataDir, db: data, mode: "chat", memory });
+      // One JSONL file per chat: Pi restores the conversation from it after a server restart.
+      const sessionFile = join(stateDir, "pi-sessions", `${sessionId}.jsonl`);
+      return createPiSession(rt, { ref, scope: "chat", model, systemPrompt, tools, compaction: true, cwd: join(stateDir, "work"), sessionFile });
     },
     solver(opts = {}) {
       const inner = createAnalystSolver(

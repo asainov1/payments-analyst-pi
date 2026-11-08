@@ -255,7 +255,11 @@ REJECT   ─ status=rejected (+ reject_stage, reject_reason, reflect_cost_usd, v
 |---|---|---|---|
 | GET | `/api/health` | — | `{ ok, langfuse, llm }` |
 | POST | `/api/sessions` | `{ version?: "best" \| VersionId }` | `201 { session_id, version }` |
-| GET | `/api/sessions/:id` | — | `{ session, turns: Turn[] }` |
+| GET | `/api/sessions` | — | `{ sessions: Array<{ id, version, origin, created_at, updated_at, turns, title }> }` — чаты с ≥ 1 ходом, новые сверху (`title` = первое сообщение); UI хранит id открытого чата в `localStorage` и восстанавливает его после перезагрузки |
+| GET | `/api/sessions/:id` | — | `{ session, turns: Turn[] }` (Pi-контекст чата хранится в `state/pi-sessions/<id>.jsonl` и переживает рестарт сервера) |
+| GET | `/api/memories` | — | `{ memories: Array<{ id, text, session_id, created_at }> }` — долгосрочная память, общая для всех чатов (tool `remember`), попадает в system prompt новых сессий |
+| POST | `/api/memories` | `{ text }` (≤ 300 символов, ≤ 50 записей) | `201 Memory`; пусто / длинно / переполнено → `400` |
+| DELETE | `/api/memories/:id` | — | `204`; неизвестный → `404` |
 | POST | `/api/sessions/:id/turns` | `{ message: string }` | `200 text/event-stream` (§4.2) |
 | POST | `/api/sessions/:id/abort` | — | `202` |
 | POST | `/api/feedback` | `{ turn_id, rating: "up"\|"down", comment? }` | `201 { id }` |
