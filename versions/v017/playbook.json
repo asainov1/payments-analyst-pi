@@ -1,0 +1,11 @@
+{
+  "next_id": 2,
+  "rules": [
+    {
+      "id": "R001",
+      "text": "For fee questions (applicable fee IDs, fee totals, rate-change deltas), compute with the fee_matcher skill, which checks every fee field (including the merchant's monthly volume and fraud bucket for each transaction's own month). Do not hand-write a partial SQL filter. Cross-check the matched transaction count with one quick SQL query before submitting.",
+      "added_in": "v014",
+      "updated_in": "v014"
+    }
+  ]
+}

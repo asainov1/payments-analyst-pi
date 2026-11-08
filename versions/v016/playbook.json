@@ -1,0 +1,11 @@
+{
+  "next_id": 2,
+  "rules": [
+    {
+      "id": "R001",
+      "text": "When a question asks which country, merchant, scheme or segment is 'top', 'worst' or 'most' for fraud, rank by fraud rate, not raw fraud counts or EUR totals. Fraud rate is the EUR volume of payments with has_fraudulent_dispute divided by total EUR volume, computed per group over the requested period. Choose only among the offered options or the listed dimensions, and treat groups whose rate is NULL (no fraud volume) as 0.",
+      "added_in": "v016",
+      "updated_in": "v016"
+    }
+  ]
+}

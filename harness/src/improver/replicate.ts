@@ -1,29 +1,37 @@
 // Re-test a previous candidate's change as a NEW version with fresh val runs (all 3 in parallel) and
 // the current gate. Used once, for v013's fee skill under the easy-regression rule revised before this run.
 //   LLM_CONCURRENCY=72 node --env-file=../.env src/improver/replicate.ts v013
+//   RUN_CONCURRENCY=3 node --env-file=../.env src/improver/replicate.ts v014 <dir with versions/v014>  (content rebuilt
+//   from a rejected version's diff.patch); the candidate passes the leak-check before any val spend.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BatchRunner } from "../runs/batch.ts";
 import { createRuntime } from "../runtime/app.ts";
 import { gateDecision } from "./gate.ts";
+import { buildLeakContext, leakCheck } from "./leakcheck.ts";
 import { assertRunOk, correctMap, materializeValMetrics, writeBest } from "./loop.ts";
-import { createVersion, readVersion, updateManifest, updateMetrics } from "./store.ts";
+import { createVersion, diffVersions, readVersion, updateManifest, updateMetrics } from "./store.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 
 async function main(): Promise<void> {
   const source = process.argv[2];
-  if (!source) throw new Error("usage: replicate.ts <version>");
+  if (!source) throw new Error("usage: replicate.ts <version> [source root]");
+  const srcRoot = process.argv[3] ?? ROOT;
+  const concurrency = Number(process.env.RUN_CONCURRENCY ?? 30);
   const app = await createRuntime({ repoRoot: ROOT });
   try {
     const parent = readFileSync(join(ROOT, "versions", "BEST"), "utf8").trim();
-    const src = readVersion(ROOT, source);
+    const src = readVersion(srcRoot, source);
     const content = { ...src, manifest: { ...src.manifest } };
+    const leak = leakCheck(diffVersions(readVersion(ROOT, parent), content), buildLeakContext(ROOT));
+    console.log(`leak-check: ${leak.ok ? "ok" : leak.reasons.join(", ")}`);
+    if (!leak.ok) throw new Error(`leak-check failed: ${leak.reasons.join(", ")}`);
     const cand = createVersion(ROOT, {
       parent,
       content,
       status: "candidate",
-      change_summary: `re-test of ${source}'s change with fresh val runs under the easy-regression rule revised before this run (≥ 2 of 3 drop). ${src.manifest.change_summary.slice(0, 160)}`,
+      change_summary: srcRoot === ROOT ? `re-test of ${source}'s change with fresh val runs under the easy-regression rule revised before this run (≥ 2 of 3 drop). ${src.manifest.change_summary.slice(0, 160)}` : `re-test of ${source} (rejected by a leak-check false positive, since fixed): content rebuilt from its diff.patch, leak-check passed, fresh val runs. ${src.manifest.change_summary.slice(0, 160)}`,
       reflectCostUsd: 0,
     });
     console.log(`candidate ${cand} (copy of ${source}) vs parent ${parent}`);
@@ -32,7 +40,7 @@ async function main(): Promise<void> {
     const tasksFile = join(ROOT, "bundle", "tasks", "val.jsonl");
     const runs = await Promise.all(
       [1, 2, 3].map(async (n) => {
-        const runner = new BatchRunner({ db: app.db, solver: app.solver(), concurrency: 30, ioDir: join(ROOT, "io"), repoRoot: ROOT, warmup: true });
+        const runner = new BatchRunner({ db: app.db, solver: app.solver(), concurrency, ioDir: join(ROOT, "io"), repoRoot: ROOT, warmup: true });
         const r = await runner.wait(await runner.startSolve({ tasksFile, version: cand, out: join(ROOT, "io", `${cand}-val-${n}.answers.jsonl`) }));
         assertRunOk(r, `${cand}-val-${n}`);
         console.log(`${cand}-val-${n}: ${r.summary?.correct}/${r.summary?.n}`);
