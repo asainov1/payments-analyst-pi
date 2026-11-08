@@ -115,6 +115,25 @@ describe("leak-check", () => {
     expect(leakCheck(table(11), ctx)).toMatchObject({ ok: false, reasons: expect.arrayContaining([expect.stringMatching(/literal_table/)]) });
     expect(leakCheck(table(10), ctx).ok).toBe(true);
     expect(leakCheck("SELECT merchant, SUM(eur_amount) FROM payments_m WHERE month = 1 GROUP BY merchant", ctx).ok).toBe(true);
+    expect(leakCheck(Array.from({ length: 11 }, (_, i) => `merchant_${i}: ${100 + i}.5`).join("\n"), ctx).ok).toBe(false);
+  });
+
+  test("code assignments and keyword arguments are not a literal table (v014 false positive)", () => {
+    const code = [
+      "mult = 1",
+      "tot = 0.0",
+      "print(applicable_fee_ids('Merchant_X', month=5))",
+      "print(fee_delta('Merchant_X', fee_id=123, new_rate=99, month=None))",
+      "print(total_fees('Merchant_X', month=3))",
+      "if s.endswith('k'): mult, s = 1e3, s[:-1]",
+      "ids = set()",
+      "a = 1",
+      "b = 2",
+      "c = 3",
+      "d = 4",
+      "e = 5",
+    ].join("\n");
+    expect(leakCheck(code, ctx).reasons.filter((r) => r.startsWith("literal_table"))).toEqual([]);
   });
 });
 

@@ -301,3 +301,29 @@ test("chat system prompt carries long-term memory; batch prompt does not", async
   expect(await buildSystemPrompt({ versionDir, dataDir, db, mode: "chat" })).toContain("## Long-term memory\n\n(empty)");
   expect(await buildSystemPrompt({ versionDir, dataDir, db, mode: "batch", memory: ["x"] })).not.toContain("Long-term memory");
 });
+
+describe("provider errors surface as error turns", () => {
+  test("assistant message with stopReason=error (e.g. expired key 401) → outcome error + error event, not an empty 'answered'", async () => {
+    script = async (s) => {
+      s.emit({ type: "message_start", message: { role: "assistant" } });
+      s.emit({
+        type: "message_end",
+        message: { role: "assistant", content: [], stopReason: "error", errorMessage: "401 Authentication Error - Expired Key", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } } },
+      });
+    };
+    const { session_id } = await newSession();
+    const ev = await sse(await post(`/api/sessions/${session_id}/turns`, { message: "fraud rate?" }));
+    const err = ev.find((e) => e.event === "error");
+    expect(err?.data.code).toBe("llm_error");
+    expect(err?.data.message).toContain("Expired Key");
+    expect(ev.find((e) => e.event === "turn.end")?.data.outcome).toBe("error");
+  });
+
+  test("turn that ends with no answer text and no clarification → outcome error (empty_answer)", async () => {
+    script = async () => {};
+    const { session_id } = await newSession();
+    const ev = await sse(await post(`/api/sessions/${session_id}/turns`, { message: "hi" }));
+    expect(ev.find((e) => e.event === "error")?.data.code).toBe("empty_answer");
+    expect(ev.find((e) => e.event === "turn.end")?.data.outcome).toBe("error");
+  });
+});

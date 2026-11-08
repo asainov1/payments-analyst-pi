@@ -185,6 +185,9 @@ export class ChatService {
     const usage: Usage = { input: 0, output: 0, cache_read: 0, cache_write: 0, cost_usd: 0, llm_calls: 0, tool_calls: 0 };
     let outcome: TurnOutcome = "answered";
     let lastText = "";
+    // Pi does not throw on a provider failure (401 expired key, 400 …): the assistant message ends with
+    // stopReason "error". Without this the turn would be stored as an empty "answered".
+    let providerError: string | null = null;
     const toolStart = new Map<string, number>();
 
     const stop = (why: TurnOutcome) => {
@@ -236,6 +239,7 @@ export class ChatService {
           if (e.message?.role === "assistant") {
             const t = textOf(e.message.content);
             if (t) lastText = t;
+            if (e.message.stopReason === "error") providerError = String(e.message.errorMessage ?? "LLM provider error");
           }
           break;
         case "tool_execution_start":
@@ -273,6 +277,15 @@ export class ChatService {
 
     const clar = this.clarification.get(id);
     if (clar && outcome === "answered") outcome = "clarification";
+    if (outcome === "answered" && (providerError || !lastText)) {
+      outcome = "error";
+      emit({
+        event: "error",
+        data: providerError
+          ? { code: "llm_error", message: `LLM provider rejected the request: ${providerError}` }
+          : { code: "empty_answer", message: "the turn ended without an answer" },
+      });
+    }
     const answer = outcome === "clarification" ? (clar?.question ?? null) : lastText || null;
     const latency = Date.now() - started;
     trace?.end({ outcome, answer }, { outcome });

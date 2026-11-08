@@ -48,8 +48,11 @@ export function buildLeakContext(repoRoot: string): LeakContext {
   return { goldLiterals: [...literals].sort((a, b) => b.length - a.length), questionNgrams };
 }
 
+// A value table names its rows by data keys: quoted dict keys or `key: n` lines. Code assignments and
+// keyword arguments (`mult = 1`, `month=5`, `tot = 0.0`) are not counted — v014 was rejected on those.
 const PAIR_PATTERNS = [
-  /['"]?[A-Za-z_][\w .-]{0,40}['"]?\s*[:=]\s*-?\d+(?:\.\d+)?/g, // dict / map literal
+  /['"][A-Za-z_][\w .-]{0,40}['"]\s*:\s*-?\d+(?:\.\d+)?/g, // quoted-key dict / JSON literal
+  /^\s*[-*]?\s*[A-Za-z_][\w .-]{0,40}:\s*-?\d+(?:\.\d+)?\s*$/gm, // `name: n` list / YAML line
   /^\|\s*[^|\n]+\|\s*-?\d+(?:\.\d+)?\s*\|/gm, // markdown table row
   /^[A-Za-z_][\w .-]{0,40},\s*-?\d+(?:\.\d+)?\s*$/gm, // csv row
 ];
