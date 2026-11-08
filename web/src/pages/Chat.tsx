@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ApiError, api, type Memory, type SessionSummary, type SessionTurn, streamTurn, type Usage, type VersionRow } from "../api.ts";
 
 type Step = { call_id: string; tool: string; args: unknown; ok?: boolean; preview?: string; ms?: number; cancelled?: boolean };
@@ -22,13 +24,22 @@ type Turn = {
 
 const fmtUsd = (v: number) => (v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(3)}`);
 
-/** Minimal inline markdown (**bold**, `code`) as React nodes — model output is never injected as HTML. */
-function Inline({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return <>{parts.map((p, i) =>
-    p.startsWith("**") && p.endsWith("**") && p.length > 4 ? <strong key={i}>{p.slice(2, -2)}</strong>
-      : p.startsWith("`") && p.endsWith("`") && p.length > 2 ? <code key={i}>{p.slice(1, -1)}</code>
-      : <span key={i}>{p}</span>)}</>;
+/** Model output as GitHub-flavoured markdown (tables, lists, code). Raw HTML is dropped and images are not
+ *  loaded, so model text can never inject markup or fetch anything. */
+const MD_COMPONENTS: Components = {
+  a: ({ node: _n, ...p }) => <a {...p} target="_blank" rel="noreferrer" />,
+  table: ({ node: _n, ...p }) => (
+    <div className="md-table">
+      <table {...p} />
+    </div>
+  ),
+};
+function Md({ text }: { text: string }) {
+  return (
+    <Markdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={["img"]} components={MD_COMPONENTS}>
+      {text}
+    </Markdown>
+  );
 }
 
 /** The open chat survives a page reload: its id is kept per browser (best effort — storage may be blocked). */
@@ -216,17 +227,17 @@ export function Chat() {
         {turns.length === 0 && <p className="muted">Ask about fees, fraud, card schemes, merchants… Follow-ups keep the context.</p>}
         {turns.map((t) => (
           <div className="turn" key={t.key}>
-            <div className="user">{t.user}</div>
+            <div className="user"><span className="who">You</span>{t.user}</div>
             <div className="timeline" data-testid="steps">
               {t.items.map((it, i) =>
                 it.kind === "text" ? (
-                  <div className="assistant" key={i}><Inline text={it.text} /></div>
+                  <div className="assistant md" key={i}><Md text={it.text} /></div>
                 ) : it.kind === "note" ? (
                   <div className="muted note" key={i} data-testid="note">🗜 {it.text}</div>
                 ) : (
                   <details className="step" key={it.step.call_id}>
-                    <summary>
-                      🔧 <code>{it.step.tool}</code> {it.step.cancelled ? "cancelled" : it.step.ok === undefined ? "running…" : it.step.ok ? `ok · ${it.step.ms} ms` : `failed · ${it.step.ms} ms`}
+                    <summary className={it.step.cancelled ? "st-cancel" : it.step.ok === undefined ? "st-run" : it.step.ok ? "st-ok" : "st-fail"}>
+                      <code>{it.step.tool}</code> {it.step.cancelled ? "cancelled" : it.step.ok === undefined ? "running…" : it.step.ok ? `ok · ${it.step.ms} ms` : `failed · ${it.step.ms} ms`}
                     </summary>
                     <pre>{JSON.stringify(it.step.args, null, 2)}</pre>
                     {it.step.preview && <pre>{it.step.preview}</pre>}

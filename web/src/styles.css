@@ -61,3 +61,63 @@ pre { background: var(--soft); padding: 8px; border-radius: 6px; overflow-x: aut
 .memory { margin: 8px 0; font-size: 14px; }
 .memory ul { margin: 6px 0 0; padding-left: 18px; }
 .memory li button { border: none; background: none; cursor: pointer; color: inherit; opacity: 0.6; }
+
+/* ---- Chat polish: cards, markdown, tool chips, composer ---- */
+:root { --card: #fff; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --zebra: #fafafb; }
+@media (prefers-color-scheme: dark) { :root { --card: #232325; --shadow: 0 1px 2px rgba(0,0,0,.4); --zebra: #29292c; } }
+body { font: 14.5px/1.55 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif; background: var(--soft); }
+.app:has(.chat) { max-width: 960px; }
+.top { background: var(--soft); position: sticky; top: 0; z-index: 2; }
+.top strong { font-size: 15px; letter-spacing: -.01em; }
+
+.turn { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); }
+.user { display: flex; gap: 10px; align-items: baseline; font-weight: 600; font-size: 15px; margin-bottom: 10px; }
+.user .who { flex: none; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); }
+.timeline { gap: 6px; }
+
+/* tool calls as compact chips with a status dot */
+.step { font-size: 12.5px; }
+.step summary { list-style: none; display: inline-flex; gap: 6px; align-items: center; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--soft); }
+.step summary::-webkit-details-marker { display: none; }
+.step summary::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.step summary.st-ok::before { background: var(--ok); }
+.step summary.st-fail::before { background: var(--bad); }
+.step summary.st-run::before { background: var(--accent); animation: pulse 1s infinite alternate; }
+.step summary code { font-weight: 600; color: var(--fg); background: none; padding: 0; }
+.step[open] summary { margin-bottom: 4px; }
+@keyframes pulse { from { opacity: .3; } to { opacity: 1; } }
+
+/* markdown answers */
+.assistant.md { white-space: normal; margin: 4px 0; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 6px 0; }
+.md h1, .md h2, .md h3, .md h4 { font-size: 15px; margin: 12px 0 6px; }
+.md ul, .md ol { margin: 6px 0; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md code { font: 12.5px/1.4 ui-monospace, "SF Mono", Menlo, monospace; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+.md pre code { background: none; padding: 0; }
+.md blockquote { margin: 6px 0; padding: 2px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.md a { color: var(--accent); }
+.md-table { overflow: auto; max-height: 460px; margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; }
+.md-table table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+.md-table th, .md-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.md-table th { position: sticky; top: 0; background: var(--soft); font-weight: 600; font-size: 12px; color: var(--muted); }
+.md-table tr:nth-child(even) td { background: var(--zebra); }
+.md-table tr:last-child td { border-bottom: none; }
+
+.note { font-size: 12.5px; padding: 4px 0; }
+.clarification { background: var(--soft); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 8px 12px; }
+.meta { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 10px; gap: 10px; }
+.meta > span:first-child { font-weight: 600; color: var(--fg); }
+
+.toolbar select[data-testid="history"] { max-width: 420px; }
+.memory { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin: 0; }
+.memory summary { cursor: pointer; font-weight: 500; }
+.memory li { margin: 3px 0; }
+
+.composer { padding: 12px 0 16px; background: linear-gradient(to bottom, transparent, var(--soft) 30%); }
+.composer input { padding: 11px 14px; border-radius: 10px; background: var(--card); box-shadow: var(--shadow); font-size: 14.5px; }
+.composer input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.composer button { border-radius: 10px; padding: 0 16px; }
+.composer button[type="submit"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
