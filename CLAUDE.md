@@ -8,7 +8,7 @@ Assignment text: `ASSIGNMENT.md` (root `README.md` is our deliverable). Task bun
 
 - Remote: `origin` = github.com/asainov1/payments-analyst-pi (PRIVATE — `bundle/` holds Zimran's
   tasks, data and scorer; never make the repo public).
-- `main` = the submitted version (`13bd458`), tag `best-frozen` → BEST = v012. Frozen: never commit
+- `main` = the submitted version (`0cc4de8`), tag `best-frozen` → BEST = v012. Frozen: never commit
   to `main`, never move the tag.
 - `dev` = all work after the submission (shared sql/python schema, long-term memory, fixes,
   post-freeze experiments v016–v020). Work and commit here; one folder, no extra worktrees.
@@ -21,6 +21,7 @@ Assignment text: `ASSIGNMENT.md` (root `README.md` is our deliverable). Task bun
   `npm test` + `npm run lint` in `harness/`, `uvx ruff check .` at the repo root,
   `npm run typecheck` in `web/` when the UI changed.
 - Stage only our own paths explicitly (`git add harness/ SPEC.md …`), never `git add -A` / `git add .`.
+- Commits carry no AI co-author trailer (no `Co-Authored-By: Claude`).
 - Before a commit or push: no secret from `.env` in the diff (`git diff --cached | grep -F "<key>"` is empty).
 - The API contract for `web/` is SPEC §4.1–§4.2: any change to it goes into SPEC first.
 
