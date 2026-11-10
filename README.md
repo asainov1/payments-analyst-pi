@@ -2,7 +2,9 @@
 
 Conversational analyst for the merchant-payments dataset, built on [Pi](https://pi.dev)
 (`@earendil-works/pi-coding-agent@1.5.0`), with a self-improvement loop gated on the validation
-set, cost/caching control and Langfuse tracing. Assignment: [`ASSIGNMENT.md`](ASSIGNMENT.md).
+set, cost/caching control and Langfuse tracing. Built as a time-boxed take-home assignment: a
+conversational analyst that answers questions about merchant payments and improves itself from
+its own mistakes without hand-edited prompts.
 Results: [`REPORT.md`](REPORT.md). Full design, decisions and step log: [`SPEC.md`](SPEC.md).
 
 **Scope:** Must and Should tiers, plus the Extra-mile **MCP server** (Streamable HTTP at `/mcp`;
